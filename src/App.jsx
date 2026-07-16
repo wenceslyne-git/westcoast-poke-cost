@@ -1,5 +1,7 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { LIGHT, DARK, DATA, gL, gPct, fmt, fmtK, useBreakpoint, Spark, PriceChart, WCP_LOGO } from "./data.jsx";
+import { supabase, isOwner } from "./supabase.js";
+import Login from "./Login.jsx";
 
 const API_HEADERS = () => ({
   "Content-Type":"application/json",
@@ -13,6 +15,15 @@ export default function App(){
   const [dark,setDark]=useState(false);
   const T=dark?DARK:LIGHT;
   const {isMobile,isDesktop}=useBreakpoint();
+
+  // ── auth ──
+  const [session,setSession]=useState(undefined); // undefined = loading
+  useEffect(()=>{
+    supabase.auth.getSession().then(({data})=>setSession(data.session));
+    const {data:sub}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s));
+    return ()=>sub.subscription.unsubscribe();
+  },[]);
+  const signOut=()=>supabase.auth.signOut();
 
   const [data,setData]=useState(DATA);
   const [tab,setTab]=useState("dashboard");
@@ -173,6 +184,10 @@ export default function App(){
 
   const TABS=[{id:"dashboard",label:"Dashboard"},{id:"ingredients",label:"Ingredients"},{id:"suppliers",label:"Suppliers"},{id:"sales",label:"Sales & P&L"},{id:"insights",label:"✦ Insights"}];
 
+  // ── auth gate ──
+  if(session===undefined) return <div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted,fontFamily:"sans-serif"}}>Loading...</div>;
+  if(!session||!isOwner(session.user?.email)) return <Login T={T}/>;
+
   return(
     <div style={{minHeight:"100vh",background:T.bg,color:T.navy,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>
 
@@ -196,7 +211,7 @@ export default function App(){
       {/* header */}
       <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"0 14px":"0 28px",display:"flex",alignItems:"center",height:isMobile?52:64,gap:8,position:"sticky",top:0,zIndex:100}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-          <div style={{width:isMobile?36:44,height:isMobile?36:44,borderRadius:11,background:T.blue,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}>
+          <div style={{width:isMobile?38:46,height:isMobile?38:46,borderRadius:"50%",background:"#fff",border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}>
             <img src={WCP_LOGO} alt="WCP" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
           </div>
           {!isMobile&&<div>
@@ -212,6 +227,7 @@ export default function App(){
         <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
           <button onClick={()=>setTab("scan")} style={{background:T.blue,border:"none",borderRadius:20,padding:isMobile?"6px 12px":"7px 16px",color:"#fff",fontSize:isMobile?12:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>📷 {isMobile?"Scan":"Scan receipt"}</button>
           <button onClick={()=>setDark(v=>!v)} style={{background:"none",border:"none",fontSize:isMobile?18:20,cursor:"pointer",padding:4,lineHeight:1}}>{dark?"☀️":"🌙"}</button>
+          <button onClick={signOut} title={session.user?.email} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.muted,padding:isMobile?"5px 10px":"6px 14px",fontSize:isMobile?11:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Sign out</button>
         </div>
       </div>
 
