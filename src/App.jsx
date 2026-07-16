@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { LIGHT, DARK, DATA, gL, gPct, fmt, fmtK, useBreakpoint, Spark, PriceChart, WCP_LOGO } from "./data.jsx";
 import { supabase, isOwner } from "./supabase.js";
+import { loadAll, seedIfEmpty, saveReceipt, saveSales } from "./db.js";
 import Login from "./Login.jsx";
 
 const API_HEADERS = () => ({
@@ -24,6 +25,23 @@ export default function App(){
     return ()=>sub.subscription.unsubscribe();
   },[]);
   const signOut=()=>supabase.auth.signOut();
+
+  // ── load data from database once signed in ──
+  const [dbLoading,setDbLoading]=useState(false);
+  useEffect(()=>{
+    if(!session||!isOwner(session.user?.email))return;
+    let cancelled=false;
+    (async()=>{
+      setDbLoading(true);
+      try{
+        await seedIfEmpty();
+        const d=await loadAll();
+        if(!cancelled)setData(d);
+      }catch(e){console.error("DB load failed",e);}
+      if(!cancelled)setDbLoading(false);
+    })();
+    return()=>{cancelled=true;};
+  },[session]);
 
   const [data,setData]=useState(DATA);
   const [tab,setTab]=useState("dashboard");
@@ -107,7 +125,7 @@ export default function App(){
     setScanning(false);
   };
 
-  const okScan=(r=null)=>{
+  const okScan=async(r=null)=>{
     const result=r||scanRes;if(!result?.items)return;
     const u=JSON.parse(JSON.stringify(data)),d=result.date||"2026-07-16";
     let saved=0;
@@ -119,7 +137,13 @@ export default function App(){
     u.receipts=[...(u.receipts||[]),`${result.supplier}|${result.date}|${result.items.length}`];
     if(!u.suppliers[result.supplier])u.suppliers[result.supplier]={type:"retail",notes:"Added from receipt scan."};
     setData(u);setScanRes(null);setImg(null);setModal(null);setTab("dashboard");
-    say(`Saved ${saved} item${saved!==1?"s":""}`);
+    try{
+      await saveReceipt(result);
+      say(`Saved ${saved} item${saved!==1?"s":""} to database`);
+    }catch(e){
+      console.error(e);
+      say("Saved locally — database sync failed",true);
+    }
   };
 
   // ── price check ──
@@ -249,7 +273,14 @@ export default function App(){
         {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,cogs,gp,fcp,revDelta,data,movers,actions,cRev,cCOGS,setSelIng,setTab}}/>}
         {tab==="ingredients"&&<Ingredients {...{T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks}}/>}
         {tab==="suppliers"&&<Suppliers {...{T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup}}/>}
-        {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bFCP,bMargin,months}}/>}
+        {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bFCP,bMargin,months,onSaveSales:async(month,l1,l2)=>{
+          const u=JSON.parse(JSON.stringify(data));
+          const existing=u.sales[month]||{mix:{}};
+          u.sales[month]={loc1:l1,loc2:l2,mix:existing.mix||{}};
+          setData(u);
+          try{await saveSales(month,l1,l2,existing.mix||{});say(`${month} sales saved`);}
+          catch(e){console.error(e);say("Save failed — try again",true);}
+        }}}/>}
         {tab==="scan"&&<Scan {...{T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okScan,onFile,fileRef}}/>}
         {tab==="insights"&&<Insights {...{T,isMobile,isDesktop,card,Tag,latMon,aiInsights,loadingInsights,generateInsights,insightChat,chatInput,setChatInput,chatLoading,sendChat}}/>}
       </div>
@@ -272,7 +303,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
         <p style={{fontSize:isMobile?13:15,color:T.slate,margin:0,lineHeight:1.6}}>{h.sub}</p>
         <div style={{display:"flex",alignItems:"center",gap:6,marginTop:8}}>
           <div style={{width:7,height:7,borderRadius:"50%",background:T.teal,animation:"pulse 2s infinite"}}/>
-          <span style={{fontSize:12,color:T.muted}}>Live · sample data</span>
+          <span style={{fontSize:12,color:T.muted}}>Live · synced to database</span>
         </div>
       </div>
 
@@ -512,10 +543,55 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup}){
 }
 
 // ─── SALES & P&L ─────────────────────────────────────────────────────────────
-function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bFCP,bMargin,months}){
+function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bFCP,bMargin,months,onSaveSales}){
+  const [showForm,setShowForm]=useState(false);
+  const [fMonth,setFMonth]=useState("");
+  const [fL1,setFL1]=useState("");
+  const [fL2,setFL2]=useState("");
+  const [saving,setSaving]=useState(false);
+  const monthOptions=(()=>{
+    const opts=[];const now=new Date(2026,6);
+    for(let i=0;i<12;i++){const d=new Date(now.getFullYear(),now.getMonth()-i);opts.push(`${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()]} ${d.getFullYear()}`);}
+    return opts;
+  })();
+  const submit=async()=>{
+    if(!fMonth||!fL1||!fL2)return;
+    setSaving(true);
+    await onSaveSales(fMonth,parseFloat(fL1)||0,parseFloat(fL2)||0);
+    setSaving(false);setShowForm(false);setFMonth("");setFL1("");setFL2("");
+  };
+  const inp={width:"100%",background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"11px 14px",color:T.navy,fontSize:15,fontFamily:"inherit",outline:"none"};
   return(
     <div>
-      <h2 style={{margin:"0 0 20px",fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Sales & P&L</h2>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+        <h2 style={{margin:0,fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Sales & P&L</h2>
+        <button onClick={()=>setShowForm(v=>!v)} style={{background:showForm?"transparent":T.blue,color:showForm?T.muted:"#fff",border:showForm?`1px solid ${T.border}`:"none",borderRadius:20,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>{showForm?"Cancel":"+ Enter monthly sales"}</button>
+      </div>
+
+      {showForm&&(
+        <div style={{...card,marginBottom:16,borderColor:T.blue}}>
+          <div style={{fontSize:isMobile?15:17,fontWeight:700,marginBottom:14}}>Enter monthly revenue</div>
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr auto",gap:10,alignItems:"end"}}>
+            <div>
+              <div style={{fontSize:11,color:T.muted,fontWeight:700,marginBottom:5}}>MONTH</div>
+              <select value={fMonth} onChange={e=>setFMonth(e.target.value)} style={inp}>
+                <option value="">Select month...</option>
+                {monthOptions.map(m=><option key={m} value={m}>{m}{data.sales[m]?" (update)":""}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:T.muted,fontWeight:700,marginBottom:5}}>{data.locations.loc1.toUpperCase()} $</div>
+              <input type="number" inputMode="decimal" placeholder="0.00" value={fL1} onChange={e=>setFL1(e.target.value)} style={inp}/>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:T.muted,fontWeight:700,marginBottom:5}}>{data.locations.loc2.toUpperCase()} $</div>
+              <input type="number" inputMode="decimal" placeholder="0.00" value={fL2} onChange={e=>setFL2(e.target.value)} style={inp}/>
+            </div>
+            <button onClick={submit} disabled={saving||!fMonth||!fL1||!fL2} style={{background:T.teal,color:"#fff",border:"none",borderRadius:10,padding:"12px 22px",fontSize:14,fontWeight:800,cursor:saving?"not-allowed":"pointer",opacity:saving||!fMonth||!fL1||!fL2?0.6:1,whiteSpace:"nowrap"}}>{saving?"Saving...":"Save"}</button>
+          </div>
+          {fMonth&&data.sales[fMonth]&&<div style={{marginTop:10,fontSize:12,color:T.amber,fontWeight:600}}>⚠ {fMonth} already has figures (${(data.sales[fMonth].loc1||0).toLocaleString()} / ${(data.sales[fMonth].loc2||0).toLocaleString()}) — saving will overwrite them.</div>}
+        </div>
+      )}
       {[...months].reverse().map(mon=>{
         const r=cRev(mon,locKey),c=cCOGS(mon,locKey),g=r-c,p=r?(c/r)*100:0;
         return(
