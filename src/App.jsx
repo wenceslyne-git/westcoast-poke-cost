@@ -122,6 +122,12 @@ export default function App(){
         :{type:"image",source:{type:"base64",media_type:img.mime||"image/jpeg",data:img.b64}};
       const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:800,messages:[{role:"user",content:[fileBlock,{type:"text",text:'Parse this supplier receipt or invoice for a poke restaurant in Vancouver. Return ONLY JSON no markdown: {"supplier":"name or Unknown","date":"YYYY-MM-DD","items":[{"ingredient":"normalised name","price":0.00,"unit":"lb"}]}. Price = unit price not line total. Skip taxes and fees. If unreadable: {"error":"Cannot read receipt clearly"}'}]}]})});
       const out=await res.json();
+      if(!res.ok){
+        const apiMsg=out?.error?.message||`API error ${res.status}`;
+        say(apiMsg.slice(0,120),true);
+        setScanning(false);
+        return;
+      }
       const txt=out.content?.find(b=>b.type==="text")?.text||"";
       const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
       if(parsed.error){say(parsed.error,true);}
