@@ -106,12 +106,21 @@ export default function App(){
   ].filter(Boolean);
 
   // ── scan ──
-  const onFile=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setImg({b64:ev.target.result.split(",")[1],prev:ev.target.result,name:f.name});r.readAsDataURL(f);};
+  const onFile=e=>{
+    const f=e.target.files[0];if(!f)return;
+    const isPdf=f.type==="application/pdf"||f.name.toLowerCase().endsWith(".pdf");
+    const r=new FileReader();
+    r.onload=ev=>setImg({b64:ev.target.result.split(",")[1],prev:isPdf?null:ev.target.result,name:f.name,isPdf,mime:isPdf?"application/pdf":(f.type||"image/jpeg")});
+    r.readAsDataURL(f);
+  };
 
   const doScan=async()=>{
     if(!img)return;setScanning(true);setScanRes(null);
     try{
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:800,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:img.b64}},{type:"text",text:'Parse this supplier receipt or invoice for a poke restaurant in Vancouver. Return ONLY JSON no markdown: {"supplier":"name or Unknown","date":"YYYY-MM-DD","items":[{"ingredient":"normalised name","price":0.00,"unit":"lb"}]}. Price = unit price not line total. Skip taxes and fees. If unreadable: {"error":"Cannot read receipt clearly"}'}]}]})});
+      const fileBlock=img.isPdf
+        ?{type:"document",source:{type:"base64",media_type:"application/pdf",data:img.b64}}
+        :{type:"image",source:{type:"base64",media_type:img.mime||"image/jpeg",data:img.b64}};
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:800,messages:[{role:"user",content:[fileBlock,{type:"text",text:'Parse this supplier receipt or invoice for a poke restaurant in Vancouver. Return ONLY JSON no markdown: {"supplier":"name or Unknown","date":"YYYY-MM-DD","items":[{"ingredient":"normalised name","price":0.00,"unit":"lb"}]}. Price = unit price not line total. Skip taxes and fees. If unreadable: {"error":"Cannot read receipt clearly"}'}]}]})});
       const out=await res.json();
       const txt=out.content?.find(b=>b.type==="text")?.text||"";
       const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
@@ -659,14 +668,16 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
       {!img?(
         <div onClick={()=>fileRef.current?.click()} style={{border:`2px dashed ${T.border}`,borderRadius:20,padding:isMobile?"52px 24px":"72px 40px",textAlign:"center",cursor:"pointer",background:T.card}}>
           <div style={{fontSize:isMobile?52:72,marginBottom:16}}>📸</div>
-          <div style={{fontSize:isMobile?16:20,fontWeight:700,color:T.slate,marginBottom:6}}>Tap to upload receipt photo</div>
-          <div style={{fontSize:isMobile?13:14,color:T.muted}}>JPG or PNG · Trade invoices and retail receipts</div>
-          <input ref={fileRef} type="file" accept="image/*" onChange={onFile} style={{display:"none"}}/>
+          <div style={{fontSize:isMobile?16:20,fontWeight:700,color:T.slate,marginBottom:6}}>Tap to upload receipt or invoice</div>
+          <div style={{fontSize:isMobile?13:14,color:T.muted}}>Photo (JPG/PNG) or PDF · Paper receipts and emailed invoices</div>
+          <input ref={fileRef} type="file" accept="image/*,application/pdf,.pdf" onChange={onFile} style={{display:"none"}}/>
         </div>
       ):(
         <div>
           <div style={{display:"flex",gap:16,marginBottom:16,background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:16}}>
-            <img src={img.prev} alt="Receipt" style={{width:isMobile?90:120,borderRadius:12,border:`1px solid ${T.border}`,objectFit:"cover",flexShrink:0}}/>
+            {img.prev
+              ?<img src={img.prev} alt="Receipt" style={{width:isMobile?90:120,borderRadius:12,border:`1px solid ${T.border}`,objectFit:"cover",flexShrink:0}}/>
+              :<div style={{width:isMobile?90:120,height:isMobile?110:140,borderRadius:12,border:`1px solid ${T.border}`,background:T.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flexShrink:0,gap:8}}><span style={{fontSize:40}}>📄</span><span style={{fontSize:11,color:T.muted,fontWeight:700}}>PDF</span></div>}
             <div style={{flex:1}}>
               <div style={{fontSize:12,color:T.muted,marginBottom:10}}>{img.name}</div>
               <button onClick={doScan} disabled={scanning} style={{width:"100%",background:T.blue,color:"#fff",border:"none",borderRadius:12,padding:isMobile?"13px":"15px",fontSize:isMobile?15:17,cursor:scanning?"not-allowed":"pointer",fontWeight:800,marginBottom:8,opacity:scanning?0.7:1}}>{scanning?"🔍 Analysing receipt...":"Extract Prices with AI"}</button>
