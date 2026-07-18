@@ -15,12 +15,12 @@ export async function loadAll() {
   const ingredients = {};
   (prices.data || []).forEach(r => {
     if (!ingredients[r.ingredient]) ingredients[r.ingredient] = [];
-    ingredients[r.ingredient].push({ id: r.id, date: r.date, price: Number(r.price), unit: r.unit, supplier: r.supplier });
+    ingredients[r.ingredient].push({ id: r.id, date: r.date, price: Number(r.price), unit: r.unit, supplier: r.supplier, quantity: r.quantity!=null?Number(r.quantity):null, line_total: r.line_total!=null?Number(r.line_total):null });
   });
 
   const suppliers = {};
   (sups.data || []).forEach(s => {
-    suppliers[s.name] = { type: s.type, contact: s.contact, phone: s.phone, email: s.email, terms: s.terms, delivery: s.delivery, notes: s.notes };
+    suppliers[s.name] = { type: s.type, contact: s.contact, phone: s.phone, email: s.email, terms: s.terms, delivery: s.delivery, notes: s.notes, preferred: !!s.preferred, address: s.address || "" };
   });
 
   const menuObj = {};
@@ -72,6 +72,8 @@ export async function saveReceipt(result, location = "all") {
   const rows = result.items.map(it => ({
     ingredient: it.ingredient, price: it.price, unit: it.unit || "unit",
     supplier: result.supplier || "Unknown", date: result.date || new Date().toISOString().slice(0, 10),
+    quantity: it.quantity != null ? it.quantity : null,
+    line_total: it.line_total != null ? it.line_total : null,
   }));
   const { error: pErr } = await supabase.from("ingredient_prices").insert(rows);
   if (pErr) throw pErr;

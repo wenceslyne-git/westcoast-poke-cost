@@ -12,6 +12,17 @@ const API_HEADERS = () => ({
 });
 const MODEL="claude-sonnet-4-6";
 
+
+const NavIcon=({id,size=22})=>{
+  const p={fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"};
+  if(id==="dashboard")return(<svg width={size} height={size} viewBox="0 0 24 24"><polyline points="3.5,17.5 9,12 13,15 20,7" {...p}/><polyline points="15,7 20,7 20,12" {...p}/><line x1="3.5" y1="21" x2="20.5" y2="21" {...p} opacity="0.45"/></svg>);
+  if(id==="sales")return(<svg width={size} height={size} viewBox="0 0 24 24"><line x1="12" y1="2.5" x2="12" y2="21.5" {...p}/><path d="M16.5 6.5H10a3.25 3.25 0 0 0 0 6.5h4a3.25 3.25 0 0 1 0 6.5H7" {...p}/></svg>);
+  if(id==="menu")return(<svg width={size} height={size} viewBox="0 0 24 24"><path d="M3.5 12.5h17a8.5 6.5 0 0 1-17 0z" {...p}/><line x1="6.5" y1="9.5" x2="17" y2="3.5" {...p}/><line x1="9.5" y1="10" x2="19.5" y2="5" {...p}/></svg>);
+  if(id==="suppliers")return(<svg width={size} height={size} viewBox="0 0 24 24"><path d="M6 2.5h12v19l-2-1.6-2 1.6-2-1.6-2 1.6-2-1.6-2 1.6z" {...p}/><line x1="9" y1="7.5" x2="15" y2="7.5" {...p}/><line x1="9" y1="11" x2="15" y2="11" {...p}/><line x1="9" y1="14.5" x2="13" y2="14.5" {...p}/></svg>);
+  if(id==="insights")return(<svg width={size} height={size} viewBox="0 0 24 24"><path d="M10 3.5l1.6 4.4L16 9.5l-4.4 1.6L10 15.5l-1.6-4.4L4 9.5l4.4-1.6z" {...p}/><path d="M18 13l0.9 2.3L21 16.2l-2.1 0.9L18 19.4l-0.9-2.3-2.1-0.9 2.1-0.9z" {...p}/><path d="M17.5 3.5l0.6 1.6 1.6 0.6-1.6 0.6-0.6 1.6-0.6-1.6-1.6-0.6 1.6-0.6z" {...p}/></svg>);
+  return null;
+};
+
 export default function App(){
   const [dark,setDark]=useState(false);
   const T=dark?DARK:LIGHT;
@@ -57,7 +68,8 @@ export default function App(){
   const [chkIng,setChkIng]=useState(null);
   const [chkAll,setChkAll]=useState(false);
   const [scanLoc,setScanLoc]=useState("all");
-  const reload=async()=>{try{const d=await loadAll();setData(d);}catch(e){console.error(e);}};
+  const [insightsStale,setInsightsStale]=useState(false);
+  const reload=async()=>{try{const d=await loadAll();setData(d);setInsightsStale(true);}catch(e){console.error(e);}};
   const [aiInsights,setAiInsights]=useState(null);
   const [loadingInsights,setLoadingInsights]=useState(false);
   const [insightChat,setInsightChat]=useState([]);
@@ -103,7 +115,7 @@ export default function App(){
   const biggestMover=movers[0];
   const actions=[
     {icon:"📷",title:"Scan a new receipt",body:"Snap a supplier invoice and AI auto-extracts line items and updates your cost database.",cta:"Open scanner",fn:()=>setTab("scan"),color:T.blue},
-    biggestMover&&biggestMover.ch>10?{icon:"🔺",title:`Renegotiate ${biggestMover.n}`,body:`Up ${biggestMover.ch.toFixed(1)}% since tracking began. Check the market to see if alternate suppliers could save money.`,cta:"Check prices",fn:()=>{setSelIng(biggestMover.n);setTab("ingredients");},color:T.coral}:null,
+    biggestMover&&biggestMover.ch>10?{icon:"🔺",title:`Renegotiate ${biggestMover.n}`,body:`Up ${biggestMover.ch.toFixed(1)}% since tracking began. Check the market to see if alternate suppliers could save money.`,cta:"Check prices",fn:()=>{setSelIng(biggestMover.n);setTab("menu");},color:T.coral}:null,
     worstBowl&&worstBowl.fcp>30?{icon:"💡",title:`Review ${worstBowl.n} pricing`,body:`Food cost is ${worstBowl.fcp.toFixed(1)}% on this bowl — above the 30% target. A modest price increase would recover margin.`,cta:"View menu costs",fn:()=>setTab("sales"),color:T.amber}:null,
   ].filter(Boolean);
 
@@ -122,7 +134,7 @@ export default function App(){
       const fileBlock=img.isPdf
         ?{type:"document",source:{type:"base64",media_type:"application/pdf",data:img.b64}}
         :{type:"image",source:{type:"base64",media_type:img.mime||"image/jpeg",data:img.b64}};
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:800,messages:[{role:"user",content:[fileBlock,{type:"text",text:'Parse this supplier receipt or invoice for a poke restaurant in Vancouver. Return ONLY JSON no markdown: {"supplier":"name or Unknown","date":"YYYY-MM-DD","items":[{"ingredient":"normalised name","price":0.00,"unit":"lb"}]}. Price = unit price not line total. Skip taxes and fees. If unreadable: {"error":"Cannot read receipt clearly"}'}]}]})});
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:800,messages:[{role:"user",content:[fileBlock,{type:"text",text:'Parse this supplier receipt or invoice for a poke restaurant in Vancouver. Return ONLY JSON no markdown: {"supplier":"name or Unknown","date":"YYYY-MM-DD","items":[{"ingredient":"normalised name","price":0.00,"unit":"lb","quantity":1,"line_total":0.00}]}. price = UNIT price. quantity = units bought. line_total = quantity x unit price as shown on the receipt. Skip taxes and fees. If unreadable: {"error":"Cannot read receipt clearly"}'}]}]})});
       const out=await res.json();
       if(!res.ok){
         const apiMsg=out?.error?.message||`API error ${res.status}`;
@@ -153,7 +165,7 @@ export default function App(){
     });
     u.receipts=[...(u.receipts||[]),`${result.supplier}|${result.date}|${result.items.length}`];
     if(!u.suppliers[result.supplier])u.suppliers[result.supplier]={type:"retail",notes:"Added from receipt scan."};
-    setData(u);setScanRes(null);setImg(null);setModal(null);setTab("dashboard");
+    setData(u);setInsightsStale(true);setScanRes(null);setImg(null);setModal(null);setTab("dashboard");
     try{
       await saveReceipt(result,scanLoc);
       await reload();
@@ -165,15 +177,18 @@ export default function App(){
   };
 
   // ── price check ──
-  const doCheck=async(ing,unit,price)=>{
+  const doCheck=async(ing,unit,price,market=false)=>{
     setChkIng(ing);setChecks(p=>({...p,[ing]:{status:"loading"}}));
+    const prefs=Object.entries(data.suppliers).filter(([,sp])=>sp.preferred).map(([n])=>n);
+    const usePref=!market&&prefs.length>0;
+    const where=usePref?`at these specific suppliers: ${prefs.join(", ")} (Vancouver BC area)`:`at Costco, T&T Supermarket, H-Mart, Save-On-Foods, local markets in Vancouver BC Canada`;
     try{
-      const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:800,tools:[{type:"web_search_20250305",name:"web_search"}],messages:[{role:"user",content:`Search current retail price of "${ing}" per ${unit} in Vancouver BC Canada 2026 at Costco, T&T Supermarket, H-Mart, Save-On-Foods, local markets. Return ONLY JSON no markdown: {"marketRange":{"low":0.00,"high":0.00},"sources":[{"store":"Name","price":0.00,"notes":"brief"}],"verdict":"good|high|very_high","recommendation":"one actionable sentence"}. Verdict: good=at/below market, high=10-25% above, very_high=25%+ above. No data: {"error":"No reliable price data"}`}]})});
+      const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:800,tools:[{type:"web_search_20250305",name:"web_search"}],messages:[{role:"user",content:`Search current price of "${ing}" per ${unit} ${where}. Return ONLY JSON no markdown: {"marketRange":{"low":0.00,"high":0.00},"sources":[{"store":"Name","price":0.00,"notes":"brief"}],"verdict":"good|high|very_high","recommendation":"one actionable sentence"}. Verdict: good=at/below market, high=10-25% above, very_high=25%+ above. No data: {"error":"No reliable price data"}`}]})});
       const out=await r.json();
       const txt=out.content?.find(b=>b.type==="text")?.text||"";
       const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
       if(parsed.error)setChecks(p=>({...p,[ing]:{status:"err",msg:parsed.error}}));
-      else setChecks(p=>({...p,[ing]:{status:"ok",data:parsed,paying:price,at:new Date().toLocaleDateString("en-CA")}}));
+      else setChecks(p=>({...p,[ing]:{status:"ok",data:parsed,paying:price,at:new Date().toLocaleDateString("en-CA"),scope:usePref?"preferred":"market"}}));
     }catch(e){setChecks(p=>({...p,[ing]:{status:"err",msg:"Search failed. Try again."}}));}
     setChkIng(null);
   };
@@ -196,7 +211,7 @@ export default function App(){
   });
 
   const generateInsights=async()=>{
-    setLoadingInsights(true);setAiInsights(null);
+    setLoadingInsights(true);setAiInsights(null);setInsightsStale(false);
     try{
       const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:1500,messages:[{role:"user",content:`You are a food cost analyst for Westcoast Poké, a two-location poke restaurant in Vancouver BC. Data: ${buildDataSummary()}\n\nGive 4-5 specific actionable insights referencing actual numbers, bowls and ingredients from the data. Return ONLY JSON no markdown: {"headline":"one punchy sentence on the biggest issue or opportunity","insights":[{"priority":"high|medium|low","icon":"emoji","title":"short title with a number","detail":"2-3 sentences with specific numbers","action":"exactly what to do next"}]}`}]})});
       const out=await res.json();
@@ -224,7 +239,7 @@ export default function App(){
   const card={background:T.card,border:`1px solid ${T.border}`,borderRadius:isMobile?12:16,padding:isMobile?"16px":"22px 24px"};
   const Tag=({c,bg,children,sm})=><span style={{background:bg||T.blueL,color:c||T.blue,border:`1px solid ${(c||T.blue)}22`,padding:sm?"2px 8px":"3px 10px",borderRadius:20,fontSize:sm?10:12,fontWeight:700,whiteSpace:"nowrap"}}>{children}</span>;
 
-  const TABS=[{id:"dashboard",label:"Dashboard"},{id:"ingredients",label:"Ingredients"},{id:"menu",label:"Menu"},{id:"suppliers",label:"Suppliers"},{id:"sales",label:"Sales & P&L"},{id:"insights",label:"✦ Insights"}];
+  const TABS=[{id:"dashboard",label:"Dashboard"},{id:"sales",label:"Sales"},{id:"menu",label:"Menu"},{id:"suppliers",label:"Suppliers"},{id:"insights",label:"AI Insights"}];
 
   // ── auth gate ──
   if(session===undefined) return <div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted,fontFamily:"sans-serif"}}>Loading...</div>;
@@ -267,6 +282,10 @@ export default function App(){
           ))}
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+          <button onClick={()=>{setTab("insights");if(!loadingInsights)generateInsights();}} title={insightsStale?"New data — refresh AI insights":"Refresh AI insights"} style={{position:"relative",background:"none",border:`1px solid ${T.border}`,borderRadius:"50%",width:isMobile?30:34,height:isMobile?30:34,color:insightsStale?T.blue:T.muted,fontSize:isMobile?14:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,fontWeight:700}}>
+            ↻
+            {insightsStale&&<span style={{position:"absolute",top:-2,right:-2,width:9,height:9,borderRadius:"50%",background:T.coral,border:`2px solid ${T.card}`}}/>}
+          </button>
           <button onClick={()=>setTab("scan")} style={{background:T.blue,border:"none",borderRadius:20,padding:isMobile?"6px 12px":"7px 16px",color:"#fff",fontSize:isMobile?12:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>📷 {isMobile?"Scan":"Scan receipt"}</button>
           <button onClick={()=>setDark(v=>!v)} style={{background:"none",border:"none",fontSize:isMobile?18:20,cursor:"pointer",padding:4,lineHeight:1}}>{dark?"☀️":"🌙"}</button>
           <button onClick={signOut} title={session.user?.email} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.muted,padding:isMobile?"5px 10px":"6px 14px",fontSize:isMobile?11:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Sign out</button>
@@ -277,31 +296,35 @@ export default function App(){
         <div style={{background:T.coralL,borderBottom:`1px solid ${T.coral}33`,padding:isMobile?"9px 14px":"9px 28px",display:"flex",alignItems:"center",gap:10,fontSize:isMobile?12:14}}>
           <span>🔺</span><span style={{color:T.coral,fontWeight:700}}>Price alert:</span>
           <span style={{color:T.slate,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{activeAlerts.map(([i])=>i).join(" · ")}</span>
-          <button onClick={()=>setTab("ingredients")} style={{marginLeft:"auto",background:"none",border:`1px solid ${T.coral}`,borderRadius:20,color:T.coral,padding:"3px 10px",fontSize:12,cursor:"pointer",fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>Review →</button>
+          <button onClick={()=>setTab("menu")} style={{marginLeft:"auto",background:"none",border:`1px solid ${T.coral}`,borderRadius:20,color:T.coral,padding:"3px 10px",fontSize:12,cursor:"pointer",fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>Review →</button>
         </div>
       )}
 
-      <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"0 8px":"0 28px",display:"flex",overflowX:"auto"}}>
-        {TABS.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{background:"none",border:"none",color:tab===t.id?T.blue:T.muted,padding:isMobile?"11px 10px":"13px 16px",fontSize:isMobile?12:14,cursor:"pointer",borderBottom:tab===t.id?`2.5px solid ${T.blue}`:"2.5px solid transparent",fontWeight:tab===t.id?700:500,whiteSpace:"nowrap",flexShrink:0}}>{t.label}</button>
-        ))}
-      </div>
-
+      <div style={{display:"flex",alignItems:"stretch"}}>
+        <div style={{width:isMobile?54:64,flexShrink:0,background:T.card,borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column",alignItems:"center",gap:4,paddingTop:14,position:"sticky",top:isMobile?52:64,alignSelf:"flex-start",height:`calc(100vh - ${isMobile?52:64}px)`}}>
+          {TABS.map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)} title={t.label} aria-label={t.label} style={{position:"relative",width:isMobile?40:46,height:isMobile?40:46,borderRadius:12,background:tab===t.id?T.blueL:"transparent",border:tab===t.id?`1.5px solid ${T.blue}44`:"1.5px solid transparent",color:tab===t.id?T.blue:T.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>
+              <NavIcon id={t.id} size={isMobile?19:22}/>
+              {t.id==="insights"&&insightsStale&&<span style={{position:"absolute",top:5,right:5,width:7,height:7,borderRadius:"50%",background:T.coral}}/>}
+            </button>
+          ))}
+        </div>
+        <div style={{flex:1,minWidth:0}}>
       <div style={{padding:isMobile?"16px":"28px 32px",maxWidth:MAXW,margin:"0 auto"}}>
-        {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,cogs,gp,fcp,revDelta,data,movers,actions,cRev,cCOGS,setSelIng,setTab}}/>}
-        {tab==="ingredients"&&<Ingredients {...{T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,say,reload}}/>}
-        {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,say,reload}}/>}
+        {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,cogs,gp,fcp,revDelta,data,movers,actions,cRev,cCOGS,setSelIng,setTab,bCost,bFCP,bMargin}}/>}
+        {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks}}/>}
         {tab==="suppliers"&&<Suppliers {...{T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,reload}}/>}
-        {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bFCP,bMargin,months,onSaveSales:async(month,l1,l2)=>{
+        {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bFCP,bMargin,months,onSaveSales:async(month,l1,l2,mix)=>{
           const u=JSON.parse(JSON.stringify(data));
-          const existing=u.sales[month]||{mix:{}};
-          u.sales[month]={loc1:l1,loc2:l2,mix:existing.mix||{}};
+          u.sales[month]={loc1:l1,loc2:l2,mix:mix||{}};
           setData(u);
-          try{await saveSales(month,l1,l2,existing.mix||{});say(`${month} sales saved`);}
+          try{await saveSales(month,l1,l2,mix||{});say(`${month} sales saved`);}
           catch(e){console.error(e);say("Save failed — try again",true);}
         }}}/>}
         {tab==="scan"&&<Scan {...{T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okScan,onFile,fileRef,scanLoc,setScanLoc,locations:data.locations}}/>}
         {tab==="insights"&&<Insights {...{T,isMobile,isDesktop,card,Tag,latMon,aiInsights,loadingInsights,generateInsights,insightChat,chatInput,setChatInput,chatLoading,sendChat}}/>}
+      </div>
+        </div>
       </div>
 
       <style>{"@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}} @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}} *{box-sizing:border-box} button:active:not(:disabled){transform:scale(0.97)}"}</style>
@@ -310,7 +333,7 @@ export default function App(){
 }
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
-function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,cogs,gp,fcp,revDelta,data,movers,actions,cRev,cCOGS,setSelIng,setTab}){
+function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,cogs,gp,fcp,revDelta,data,movers,actions,cRev,cCOGS,setSelIng,setTab,bCost,bFCP,bMargin}){
   const h=headline;
   return(
     <div>
@@ -384,17 +407,43 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
         )}
 
         <div style={card}>
-          <div style={{fontSize:isMobile?15:17,fontWeight:700,marginBottom:4}}>Price movement</div>
-          <div style={{fontSize:12,color:T.muted,marginBottom:14}}>Shared purchasing across both locations</div>
-          {movers.map((m,i)=>(
-            <div key={m.n} onClick={()=>{setSelIng(m.n);setTab("ingredients");}} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:i<movers.length-1?`1px solid ${T.border}`:"none",cursor:"pointer"}}>
-              <div style={{width:7,height:7,borderRadius:"50%",background:m.ch>20?T.coral:m.ch>10?T.amber:m.ch>0?"#F59E0B":T.teal,flexShrink:0}}/>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:isMobile?13:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.n}</div>
-                <div style={{fontSize:10,color:T.muted,textTransform:"uppercase"}}>per {m.unit}</div>
+          <div style={{fontSize:isMobile?15:17,fontWeight:700,marginBottom:4}}>Best price today</div>
+          <div style={{fontSize:12,color:T.muted,marginBottom:14}}>Cheapest known supplier per ingredient · date shows how fresh the price is</div>
+          <div style={{maxHeight:340,overflowY:"auto"}}>
+            {Object.entries(data.ingredients).map(([ing,entries],i,arr)=>{
+              const bySup={};
+              entries.forEach(e=>{bySup[e.supplier]=e;});
+              const best=Object.values(bySup).sort((a,b)=>a.price-b.price)[0];
+              if(!best)return null;
+              const age=Math.floor((Date.now()-new Date(best.date).getTime())/86400000);
+              const stale=age>14;
+              return(
+                <div key={ing} onClick={()=>{setSelIng(ing);setTab("menu");}} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:i<arr.length-1?`1px solid ${T.border}`:"none",cursor:"pointer"}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:isMobile?13:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ing}</div>
+                    <div style={{fontSize:11,color:T.muted}}>{best.supplier}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:isMobile?13:15,fontWeight:800,color:T.teal}}>${fmt(best.price)}<span style={{fontSize:10,color:T.muted,fontWeight:400}}>/{best.unit}</span></div>
+                    <div style={{fontSize:10,color:stale?T.amber:T.muted}}>{stale?`⚠ ${age}d old`:best.date}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={card}>
+          <div style={{fontSize:isMobile?15:17,fontWeight:700,marginBottom:4}}>What to push</div>
+          <div style={{fontSize:12,color:T.muted,marginBottom:14}}>Bowls ranked by net profit · market these hardest</div>
+          {Object.entries(data.menu).map(([b,m])=>({b,margin:bMargin(b),profit:m.price-bCost(b)})).sort((a,b)=>b.profit-a.profit).map((r,i,arr)=>(
+            <div key={r.b} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:i<arr.length-1?`1px solid ${T.border}`:"none"}}>
+              <div style={{width:22,height:22,borderRadius:"50%",background:i===0?T.teal:T.bg,color:i===0?"#fff":T.muted,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0,border:i===0?"none":`1px solid ${T.border}`}}>{i+1}</div>
+              <div style={{flex:1,fontSize:isMobile?13:14,fontWeight:600}}>{r.b}{i===0&&<span style={{marginLeft:8,fontSize:10,color:T.teal,fontWeight:800}}>PUSH</span>}</div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:isMobile?13:15,fontWeight:800,color:r.margin>70?T.teal:r.margin>60?T.amber:T.coral}}>${fmt(r.profit)}</div>
+                <div style={{fontSize:10,color:T.muted}}>{r.margin.toFixed(1)}% margin</div>
               </div>
-              <Spark data={m.entries} up={m.ch>0} T={T} W={isDesktop?85:65} H={28}/>
-              <div style={{fontSize:isMobile?12:14,fontWeight:700,color:m.ch>0?T.coral:T.teal,minWidth:54,textAlign:"right"}}>{m.ch>0?"+":""}{m.ch.toFixed(1)}%</div>
             </div>
           ))}
         </div>
@@ -421,6 +470,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
   const [mIng,setMIng]=useState("");const [mPrice,setMPrice]=useState("");const [mUnit,setMUnit]=useState("lb");const [mSup,setMSup]=useState("");const [mDate,setMDate]=useState(new Date().toISOString().slice(0,10));
   const [mSaving,setMSaving]=useState(false);
   const [thrEdit,setThrEdit]=useState("");
+  const [iView,setIView]=useState("cards");
   const inp={background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px",color:T.navy,fontSize:14,fontFamily:"inherit",outline:"none",width:"100%"};
   const submitManual=async()=>{
     if(!mIng.trim()||!mPrice)return;
@@ -454,6 +504,11 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,flexWrap:"wrap",gap:8}}>
         <h2 style={{margin:0,fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Ingredients <span style={{fontSize:isMobile?14:16,color:T.muted,fontWeight:400}}>({Object.keys(data.ingredients).length})</span></h2>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:2,background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:2}}>
+            {[["cards","▦"],["list","≡"]].map(([id,ic])=>(
+              <button key={id} onClick={()=>setIView(id)} title={id} style={{background:iView===id?T.blue:"transparent",color:iView===id?"#fff":T.slate,border:"none",borderRadius:14,padding:"5px 12px",fontSize:13,fontWeight:700,cursor:"pointer"}}>{ic}</button>
+            ))}
+          </div>
           <button onClick={()=>setShowAdd(v=>!v)} style={{background:showAdd?"transparent":T.blue,color:showAdd?T.muted:"#fff",border:showAdd?`1px solid ${T.border}`:"none",padding:"8px 16px",borderRadius:20,fontSize:13,cursor:"pointer",fontWeight:700}}>{showAdd?"Cancel":"+ Add price"}</button>
           <button onClick={doAllChecks} disabled={chkAll} style={{background:T.tealL,border:`1px solid ${T.teal}44`,color:T.teal,padding:"8px 16px",borderRadius:20,fontSize:13,cursor:chkAll?"not-allowed":"pointer",fontWeight:700,opacity:chkAll?0.6:1}}>{chkAll?"🔍 Checking...":"🔍 Check all prices"}</button>
         </div>
@@ -480,6 +535,22 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
           <div style={{fontSize:14}}>Scan your first receipt or add a price manually to get started.</div>
         </div>
       )}
+      {iView==="list"&&(
+        <div style={{...card,padding:0,overflow:"hidden"}}>
+          {Object.entries(data.ingredients).map(([name,entries],i,arr)=>{
+            const lat=gL(entries),ch=gPct(entries),thr=data.alerts[name],ov=thr&&lat>thr;
+            return(
+              <div key={name} onClick={()=>{setSelIng(name);setIView("cards");}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderBottom:i<arr.length-1?`1px solid ${T.border}`:"none",cursor:"pointer"}}>
+                <div style={{flex:1,fontSize:13,fontWeight:600}}>{name}{ov&&<span style={{marginLeft:6,fontSize:11,color:T.coral}}>{"\u26a0"}</span>}</div>
+                <div style={{fontSize:12,color:T.muted}}>{entries[entries.length-1]?.supplier}</div>
+                <div style={{fontSize:13,fontWeight:700,width:90,textAlign:"right"}}>${fmt(lat)}<span style={{fontSize:10,color:T.muted,fontWeight:400}}>/{entries[0]?.unit}</span></div>
+                <div style={{fontSize:12,fontWeight:700,color:ch>0?T.coral:T.teal,width:64,textAlign:"right"}}>{ch>0?"+":""}{ch.toFixed(1)}%</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {iView==="cards"&&(
       <div style={{display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",gap:10}}>
         {Object.entries(data.ingredients).map(([name,entries])=>{
           const lat=gL(entries),ch=gPct(entries),isSel=selIng===name,thr=data.alerts[name],ov=thr&&lat>thr,pc=checks[name];
@@ -496,7 +567,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
                 </div>
                 <div style={{textAlign:"right",marginRight:8}}>
                   <div style={{fontSize:isMobile?18:22,fontWeight:800,letterSpacing:"-0.5px"}}>${fmt(lat)}<span style={{fontSize:11,color:T.muted,fontWeight:400}}>/{entries[0]?.unit}</span></div>
-                  <div style={{fontSize:13,fontWeight:700,color:ch>0?T.coral:T.teal}}>{ch>0?"▲":"▼"} {Math.abs(ch).toFixed(1)}%</div>
+                  <div style={{fontSize:13,fontWeight:700,color:ch>0?T.coral:T.teal}}>{ch>0?"▲":"▼"} {Math.abs(ch).toFixed(1)}%<span style={{fontSize:10,color:T.muted,fontWeight:400}}> · {(()=>{const ms=(new Date(entries[entries.length-1].date)-new Date(entries[0].date))/2592000000;return ms<1?"<1 mo":`${Math.round(ms)} mo`;})()}</span></div>
                 </div>
                 <Spark data={entries} up={ch>0} T={T} W={isDesktop?90:70} H={32}/>
               </div>
@@ -553,7 +624,10 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
                             })}
                           </div>
                           <div style={{fontSize:13,color:vc,fontWeight:600,marginBottom:6}}>💡 {r.recommendation}</div>
-                          <div style={{fontSize:11,color:T.muted}}>Checked {pc.at} · Retail prices only</div>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                            <div style={{fontSize:11,color:T.muted}}>Checked {pc.at} · {pc.scope==="preferred"?"Preferred suppliers":"Market-wide"} · indicative only</div>
+                            {pc.scope==="preferred"&&<button onClick={()=>doCheck(name,entries[0]?.unit||"unit",lat,true)} style={{background:"none",border:"none",color:T.blue,fontSize:11,fontWeight:700,cursor:"pointer",textDecoration:"underline",padding:0}}>Search wider market instead</button>}
+                          </div>
                         </div>
                       );
                     })()}
@@ -564,6 +638,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
           );
         })}
       </div>
+      )}
     </div>
   );
 }
@@ -572,91 +647,292 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
 function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,reload}){
   const [editSup,setEditSup]=useState(null);
   const [ef,setEf]=useState({});
+  const [showAdd,setShowAdd]=useState(false);
+  const [nf,setNf]=useState({name:"",type:"trade",contact:"",phone:"",email:"",terms:"",delivery:"",notes:""});
+  const [adding,setAdding]=useState(false);
+  const [dCat,setDCat]=useState("Any");
+  const [dRad,setDRad]=useState(20);
+  const [dBusy,setDBusy]=useState(false);
+  const [dResults,setDResults]=useState(null);
+  const [refBusy,setRefBusy]=useState(false);
+  const [refResults,setRefResults]=useState(null);
   const inp={background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"9px 12px",color:T.navy,fontSize:13,fontFamily:"inherit",outline:"none",width:"100%"};
-  const startEdit=(name,s)=>{setEditSup(name);setEf({type:s.type||"retail",contact:s.contact||"",phone:s.phone||"",email:s.email||"",terms:s.terms||"",delivery:s.delivery||"",notes:s.notes||""});};
-  const saveEdit=async()=>{
-    try{await upsertSupplier(editSup,ef);await reload();say("Supplier updated");setEditSup(null);}
-    catch(e){say("Save failed",true);}
-  };
+
+  const now=new Date();
+  const monthStart=new Date(now.getFullYear(),now.getMonth(),1).getTime();
+  const yearStart=new Date(now.getFullYear(),0,1).getTime();
+  const allEntries=[];
+  Object.entries(data.ingredients).forEach(([ing,entries])=>entries.forEach(e=>allEntries.push({...e,ingredient:ing})));
+  const spend=(name,since)=>allEntries.filter(e=>e.supplier===name&&e.line_total!=null&&new Date(e.date).getTime()>=since).reduce((sm,e)=>sm+e.line_total,0);
+
+  const wins={},losses={};
+  Object.entries(data.ingredients).forEach(([ing,entries])=>{
+    const bySup={};entries.forEach(e=>{bySup[e.supplier]=e;});
+    const sorted=Object.entries(bySup).sort((a,b)=>a[1].price-b[1].price);
+    if(sorted.length<1)return;
+    const [wName,wE]=sorted[0];
+    if(!wins[wName])wins[wName]=[];
+    wins[wName].push({ing,price:wE.price,unit:wE.unit,vs:sorted[1]?{sup:sorted[1][0],gap:sorted[1][1].price-wE.price}:null});
+    sorted.slice(1).forEach(([lName,lE])=>{
+      if(!losses[lName])losses[lName]=[];
+      losses[lName].push({ing,price:lE.price,unit:lE.unit,best:wName,gap:lE.price-wE.price});
+    });
+  });
+
+  const startEdit=(name,sp)=>{setEditSup(name);setEf({type:sp.type||"retail",contact:sp.contact||"",phone:sp.phone||"",email:sp.email||"",terms:sp.terms||"",delivery:sp.delivery||"",notes:sp.notes||"",preferred:!!sp.preferred,address:sp.address||""});};
+  const saveEdit=async()=>{try{await upsertSupplier(editSup,ef);await reload();say("Supplier updated");setEditSup(null);}catch(e){say("Save failed",true);}};
   const delSup=async(name)=>{
-    if(!window.confirm(`Delete supplier "${name}"? Price history entries keep the name but the supplier record is removed.`))return;
-    try{await deleteSupplier(name);await reload();setSelSup(null);say(`${name} deleted`);}
-    catch(e){say("Delete failed",true);}
+    if(!window.confirm(`Delete supplier "${name}"?`))return;
+    try{await deleteSupplier(name);await reload();setSelSup(null);say(`${name} deleted`);}catch(e){say("Delete failed",true);}
   };
+  const addSup=async()=>{
+    const name=nf.name.trim();if(!name)return;
+    if(data.suppliers[name]){say("That supplier already exists",true);return;}
+    setAdding(true);
+    try{const {name:_,...fields}=nf;await upsertSupplier(name,fields);await reload();say(`${name} added`);setShowAdd(false);setNf({name:"",type:"trade",contact:"",phone:"",email:"",terms:"",delivery:"",notes:""});}
+    catch(e){say("Add failed",true);}
+    setAdding(false);
+  };
+  const discover=async()=>{
+    setDBusy(true);setDResults(null);
+    try{
+      const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:1200,tools:[{type:"web_search_20250305",name:"web_search"}],messages:[{role:"user",content:`Find wholesale/trade food suppliers within ${dRad}km of a poke restaurant with locations at West 8th & Cambie Vancouver BC and Ironwood Plaza Richmond BC. Category: ${dCat==="Any"?"seafood, produce or dry goods":dCat}. Prioritise wholesalers and distributors over retail. Return ONLY JSON no markdown: {"suppliers":[{"name":"","category":"","distance":"~Xkm from <location>","address":"","notes":"one line: what they offer, trade terms if known"}]}. Max 6 results. If nothing found: {"suppliers":[]}`}]})});
+      const out=await r.json();
+      const txt=out.content?.find(b=>b.type==="text")?.text||"";
+      const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
+      setDResults(parsed.suppliers||[]);
+      if(!(parsed.suppliers||[]).length)say("No suppliers found — try a wider radius",true);
+    }catch(e){say("Search failed — try again",true);}
+    setDBusy(false);
+  };
+  const addPreferred=async(r)=>{
+    try{
+      await upsertSupplier(r.name,{type:"trade",preferred:true,address:r.address||"",notes:`${r.category||""} · ${r.distance||""} · ${r.notes||""}`.trim()});
+      await reload();say(`${r.name} added to preferred`);
+    }catch(e){say("Add failed",true);}
+  };
+  const togglePreferred=async(name,sp)=>{
+    try{await upsertSupplier(name,{...sp,preferred:!sp.preferred});await reload();}
+    catch(e){say("Update failed",true);}
+  };
+  const refreshPreferred=async()=>{
+    const prefs=Object.entries(data.suppliers).filter(([,sp])=>sp.preferred).map(([n])=>n);
+    if(!prefs.length){say("No preferred suppliers yet — star some first",true);return;}
+    setRefBusy(true);setRefResults(null);
+    const ingList=Object.entries(data.ingredients).map(([n,e])=>`${n} (per ${e[0]?.unit||"unit"})`).join(", ");
+    const results={};
+    for(const supName of prefs){
+      try{
+        const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:900,tools:[{type:"web_search_20250305",name:"web_search"}],messages:[{role:"user",content:`Search current prices at "${supName}" in Vancouver BC area for these restaurant ingredients: ${ingList}. Return ONLY JSON no markdown: {"found":[{"ingredient":"","price":0.00,"unit":"","notes":"brief"}]}. Only include items with a genuine price signal. If none: {"found":[]}`}]})});
+        const out=await r.json();
+        const txt=out.content?.find(b=>b.type==="text")?.text||"";
+        const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
+        results[supName]={found:parsed.found||[],at:new Date().toLocaleDateString("en-CA")};
+      }catch(e){results[supName]={found:[],err:true};}
+    }
+    setRefResults(results);setRefBusy(false);say("Preferred price refresh complete");
+  };
+  const exportSupCsv=(name)=>{
+    const rows=[["Date","Ingredient","Unit price","Unit","Quantity","Line total"]];
+    allEntries.filter(e=>e.supplier===name).sort((a,b)=>a.date<b.date?1:-1).forEach(e=>rows.push([e.date,e.ingredient,e.price,e.unit,e.quantity??"",e.line_total??""]));
+    const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const blob=new Blob([csv],{type:"text/csv"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`${name.replace(/\s/g,"-")}-line-items.csv`;a.click();URL.revokeObjectURL(a.href);
+  };
+
   return(
     <div>
-      <h2 style={{margin:"0 0 20px",fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Suppliers</h2>
-      {["trade","retail"].map(st=>{
-        const sups=Object.entries(data.suppliers).filter(([,s])=>s.type===st);
-        if(!sups.length)return null;
-        return(
-          <div key={st} style={{marginBottom:24}}>
-            <div style={{fontSize:11,color:T.muted,textTransform:"uppercase",letterSpacing:"1.2px",fontWeight:700,marginBottom:10}}>{st==="trade"?"Trade Accounts":"Regular Retail · Cash"}</div>
-            <div style={{display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",gap:10}}>
-              {sups.map(([name,s])=>{
-                const isSel=selSup===name;
-                const ingList=Object.entries(data.ingredients).filter(([,ee])=>ee.some(e=>e.supplier===name)).map(([i])=>i);
-                return(
-                  <div key={name} onClick={()=>setSelSup(isSel?null:name)} style={{...card,borderColor:isSel?T.blue:T.border,cursor:"pointer"}}>
-                    <div style={{display:"flex",alignItems:"flex-start",gap:12}}>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:isMobile?15:17,fontWeight:700,marginBottom:3}}>{name}</div>
-                        <div style={{fontSize:12,color:T.muted}}>{st==="trade"?`${s.terms} · ${s.delivery}`:"Cash · Self-collect"}</div>
-                      </div>
-                      {ingList.length>0&&<Tag c={T.blue} bg={T.blueL} sm>{ingList.length} ingredient{ingList.length>1?"s":""}</Tag>}
-                    </div>
-                    {isSel&&(
-                      <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${T.border}`}} onClick={e=>e.stopPropagation()}>
-                        {editSup===name?(
-                          <div>
-                            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr",gap:8,marginBottom:10}}>
-                              {[["contact","Contact"],["phone","Phone"],["email","Email"],["terms","Terms"],["delivery","Delivery days"]].map(([k,lb])=>(
-                                <div key={k}><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>{lb.toUpperCase()}</div><input value={ef[k]} onChange={e=>setEf(p=>({...p,[k]:e.target.value}))} style={inp}/></div>
-                              ))}
-                              <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>TYPE</div><select value={ef.type} onChange={e=>setEf(p=>({...p,type:e.target.value}))} style={inp}><option value="trade">Trade account</option><option value="retail">Retail (cash)</option></select></div>
-                            </div>
-                            <div style={{marginBottom:10}}><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>NOTES</div><input value={ef.notes} onChange={e=>setEf(p=>({...p,notes:e.target.value}))} style={inp}/></div>
-                            <div style={{display:"flex",gap:8}}>
-                              <button onClick={saveEdit} style={{background:T.teal,color:"#fff",border:"none",borderRadius:16,padding:"8px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Save</button>
-                              <button onClick={()=>setEditSup(null)} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:16,color:T.muted,padding:"8px 18px",fontSize:13,cursor:"pointer"}}>Cancel</button>
-                            </div>
-                          </div>
-                        ):(
-                          <>
-                        {st==="trade"&&(
-                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-                            {[["Terms",s.terms],["Delivery",s.delivery],["Contact",s.contact],["Phone",s.phone],["Email",s.email]].filter(([,v])=>v).map(([k,v])=>(
-                              <div key={k}><div style={{fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",marginBottom:2}}>{k}</div><div style={{fontSize:14,color:T.slate}}>{v}</div></div>
-                            ))}
-                          </div>
-                        )}
-                        {s.notes&&<div style={{fontSize:13,color:T.muted,fontStyle:"italic",marginBottom:10,background:T.bg,padding:"8px 12px",borderRadius:8}}>{s.notes}</div>}
-                        {ingList.length>0&&(
-                          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
-                            {ingList.map(ing=>{
-                              const ee=data.ingredients[ing];
-                              const myL=ee.filter(e=>e.supplier===name).slice(-1)[0]?.price;
-                              const allL=gL(ee);
-                              const cheap=myL&&myL<=allL;
-                              return <Tag key={ing} c={cheap?T.teal:T.coral} bg={cheap?T.tealL:T.coralL} sm>{ing} ${myL?.toFixed(2)}</Tag>;
-                            })}
-                          </div>
-                        )}
-                        <div style={{display:"flex",gap:8}}>
-                          <button onClick={()=>startEdit(name,s)} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>✎ Edit details</button>
-                          <button onClick={()=>delSup(name)} style={{marginLeft:"auto",background:"none",border:`1px solid ${T.coral}55`,borderRadius:16,color:T.coral,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Delete</button>
-                        </div>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,flexWrap:"wrap",gap:8}}>
+        <h2 style={{margin:0,fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Suppliers</h2>
+        <button onClick={()=>setShowAdd(v=>!v)} style={{background:showAdd?"transparent":T.blue,color:showAdd?T.muted:"#fff",border:showAdd?`1px solid ${T.border}`:"none",padding:"8px 16px",borderRadius:20,fontSize:13,cursor:"pointer",fontWeight:700}}>{showAdd?"Cancel":"+ Add supplier"}</button>
+      </div>
+      <p style={{margin:"0 0 16px",fontSize:isMobile?12:13,color:T.muted}}>Spend figures build from receipts scanned with quantities · tap a supplier for detail and line items</p>
+
+      {showAdd&&(
+        <div style={{...card,marginBottom:14,borderColor:T.blue}}>
+          <div style={{fontSize:15,fontWeight:700,marginBottom:12}}>Add a supplier</div>
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:8,marginBottom:10}}>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>NAME *</div><input value={nf.name} onChange={e=>setNf(p=>({...p,name:e.target.value}))} style={inp}/></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>TYPE</div><select value={nf.type} onChange={e=>setNf(p=>({...p,type:e.target.value}))} style={inp}><option value="trade">Trade account</option><option value="retail">Retail (cash)</option></select></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>TERMS</div><input value={nf.terms} onChange={e=>setNf(p=>({...p,terms:e.target.value}))} placeholder="e.g. Net 14" style={inp}/></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>DELIVERY</div><input value={nf.delivery} onChange={e=>setNf(p=>({...p,delivery:e.target.value}))} placeholder="e.g. Mon/Wed" style={inp}/></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>CONTACT</div><input value={nf.contact} onChange={e=>setNf(p=>({...p,contact:e.target.value}))} style={inp}/></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>PHONE</div><input value={nf.phone} onChange={e=>setNf(p=>({...p,phone:e.target.value}))} style={inp}/></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>EMAIL</div><input value={nf.email} onChange={e=>setNf(p=>({...p,email:e.target.value}))} style={inp}/></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>NOTES</div><input value={nf.notes} onChange={e=>setNf(p=>({...p,notes:e.target.value}))} style={inp}/></div>
           </div>
-        );
-      })}
+          <button onClick={addSup} disabled={adding||!nf.name.trim()} style={{background:T.teal,color:"#fff",border:"none",borderRadius:10,padding:"10px 24px",fontSize:14,fontWeight:800,cursor:"pointer",opacity:adding||!nf.name.trim()?0.6:1}}>{adding?"Adding...":"Add supplier"}</button>
+        </div>
+      )}
+
+      <div style={{...card,marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:dResults?12:0}}>
+          <div style={{fontSize:14,fontWeight:700}}>Find new suppliers</div>
+          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+            <select value={dCat} onChange={e=>setDCat(e.target.value)} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:14,padding:"6px 12px",color:T.navy,fontSize:12,fontWeight:600,outline:"none"}}>
+              {["Any","Seafood","Produce","Dry goods"].map(c=><option key={c}>{c}</option>)}
+            </select>
+            <div style={{display:"flex",gap:2,background:T.bg,border:`1px solid ${T.border}`,borderRadius:14,padding:2}}>
+              {[10,20,30].map(r=><button key={r} onClick={()=>setDRad(r)} style={{background:dRad===r?T.blue:"transparent",color:dRad===r?"#fff":T.slate,border:"none",borderRadius:12,padding:"4px 10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{r}km</button>)}
+            </div>
+            <button onClick={discover} disabled={dBusy} style={{background:T.blue,color:"#fff",border:"none",borderRadius:16,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer",opacity:dBusy?0.6:1}}>{dBusy?"Searching...":"\ud83d\udd0d Search"}</button>
+          </div>
+        </div>
+        {dResults&&dResults.length>0&&(
+          <div style={{borderTop:`1px solid ${T.border}`,paddingTop:8}}>
+            {dResults.map((r,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"9px 0",borderBottom:i<dResults.length-1?`1px solid ${T.border}`:"none"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700}}>{r.name}</div>
+                  <div style={{fontSize:11,color:T.muted}}>{[r.category,r.distance,r.notes].filter(Boolean).join(" \u00b7 ")}</div>
+                </div>
+                {data.suppliers[r.name]
+                  ?<Tag c={T.teal} bg={T.tealL} sm>{"\u2713"} In your list</Tag>
+                  :<button onClick={()=>addPreferred(r)} style={{background:T.tealL,border:`1px solid ${T.teal}44`,borderRadius:16,color:T.teal,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{"\u2606"} Add to preferred</button>}
+              </div>
+            ))}
+            <div style={{fontSize:10,color:T.muted,marginTop:8}}>Web results are indicative \u2014 verify details before ordering. Contact info may be incomplete for trade-only suppliers.</div>
+          </div>
+        )}
+      </div>
+
+      <div style={{...card,marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{fontSize:14,fontWeight:700}}>{"\u2605"} Preferred suppliers <span style={{fontSize:12,color:T.muted,fontWeight:400}}>({Object.values(data.suppliers).filter(sp=>sp.preferred).length})</span></div>
+          <button onClick={refreshPreferred} disabled={refBusy} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer",opacity:refBusy?0.6:1}}>{refBusy?"Refreshing...":"\u21bb Refresh preferred prices"}</button>
+        </div>
+        <div style={{fontSize:11,color:T.muted,marginTop:6}}>Star suppliers in the table below. Refresh runs one live search per preferred supplier \u2014 results are advisory only and never write into your price history.</div>
+        {refResults&&(
+          <div style={{marginTop:12,borderTop:`1px solid ${T.border}`,paddingTop:10}}>
+            {Object.entries(refResults).map(([supName,res])=>(
+              <div key={supName} style={{marginBottom:10}}>
+                <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>{supName} <span style={{fontSize:10,color:T.muted,fontWeight:400}}>checked {res.at||"now"}</span></div>
+                {res.err&&<div style={{fontSize:12,color:T.coral}}>Search failed for this supplier.</div>}
+                {!res.err&&!res.found.length&&<div style={{fontSize:12,color:T.muted}}>No reliable price signals found online.</div>}
+                {res.found.length>0&&(
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                    {res.found.map((f,fi)=>{
+                      const cur=data.ingredients[f.ingredient]?gL(data.ingredients[f.ingredient]):null;
+                      const cheaper=cur!=null&&f.price<cur;
+                      return <Tag key={fi} c={cheaper?T.teal:T.slate} bg={cheaper?T.tealL:T.bg} sm>{f.ingredient} ${Number(f.price).toFixed(2)}/{f.unit}{cheaper?` (you pay $${cur.toFixed(2)})`:""}</Tag>;
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div style={{...card,padding:0,overflow:"hidden"}}>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr auto auto":"2fr 1fr 1fr 1fr 1fr",gap:8,padding:"10px 16px",background:T.bg,fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px"}}>
+          <div>Supplier</div>
+          {!isMobile&&<div>Type</div>}
+          {!isMobile&&<div style={{textAlign:"right"}}>Cheapest on</div>}
+          <div style={{textAlign:"right"}}>This month</div>
+          <div style={{textAlign:"right"}}>This year</div>
+        </div>
+        {Object.entries(data.suppliers).sort((a,b)=>(b[1].preferred?1:0)-(a[1].preferred?1:0)||spend(b[0],yearStart)-spend(a[0],yearStart)).map(([name,sp],i,arr)=>{
+          const isSel=selSup===name;
+          const mSpend=spend(name,monthStart),ySpend=spend(name,yearStart);
+          const w=(wins[name]||[]).length,l=(losses[name]||[]).length;
+          return(
+            <div key={name} style={{borderTop:`1px solid ${T.border}`}}>
+              <div onClick={()=>setSelSup(isSel?null:name)} style={{display:"grid",gridTemplateColumns:isMobile?"1fr auto auto":"2fr 1fr 1fr 1fr 1fr",gap:8,padding:"12px 16px",cursor:"pointer",background:isSel?T.blueL:"transparent",alignItems:"center"}}>
+                <div style={{fontSize:isMobile?13:15,fontWeight:700,display:"flex",alignItems:"center",gap:6}}>
+                  <button onClick={e=>{e.stopPropagation();togglePreferred(name,sp);}} title={sp.preferred?"Remove from preferred":"Add to preferred"} style={{background:"none",border:"none",cursor:"pointer",fontSize:15,padding:0,color:sp.preferred?T.amber:T.border,lineHeight:1}}>{sp.preferred?"\u2605":"\u2606"}</button>
+                  {name}
+                </div>
+                {!isMobile&&<div style={{fontSize:12,color:T.muted}}>{sp.type==="trade"?"Trade":"Retail"}</div>}
+                {!isMobile&&<div style={{textAlign:"right",fontSize:13}}>{w+l>0?<span style={{fontWeight:700,color:w>=l?T.teal:T.coral}}>{w} of {w+l}</span>:<span style={{color:T.muted}}>{"\u2014"}</span>}</div>}
+                <div style={{textAlign:"right",fontSize:isMobile?12:14,fontWeight:600,color:mSpend?T.navy:T.muted}}>{mSpend?`$${fmt(mSpend)}`:"\u2014"}</div>
+                <div style={{textAlign:"right",fontSize:isMobile?12:14,fontWeight:600,color:ySpend?T.navy:T.muted}}>{ySpend?`$${fmt(ySpend)}`:"\u2014"}</div>
+              </div>
+              {isSel&&(
+                <div style={{padding:"14px 16px",borderTop:`1px solid ${T.border}`,background:T.bg}}>
+                  {editSup===name?(
+                    <div>
+                      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr",gap:8,marginBottom:10}}>
+                        {[["contact","Contact"],["phone","Phone"],["email","Email"],["terms","Terms"],["delivery","Delivery days"]].map(([k,lb])=>(
+                          <div key={k}><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>{lb.toUpperCase()}</div><input value={ef[k]} onChange={e=>setEf(p=>({...p,[k]:e.target.value}))} style={{...inp,background:T.card}}/></div>
+                        ))}
+                        <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>TYPE</div><select value={ef.type} onChange={e=>setEf(p=>({...p,type:e.target.value}))} style={{...inp,background:T.card}}><option value="trade">Trade account</option><option value="retail">Retail (cash)</option></select></div>
+                      </div>
+                      <div style={{marginBottom:10}}><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>NOTES</div><input value={ef.notes} onChange={e=>setEf(p=>({...p,notes:e.target.value}))} style={{...inp,background:T.card}}/></div>
+                      <div style={{display:"flex",gap:8}}>
+                        <button onClick={saveEdit} style={{background:T.teal,color:"#fff",border:"none",borderRadius:16,padding:"8px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Save</button>
+                        <button onClick={()=>setEditSup(null)} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:16,color:T.muted,padding:"8px 18px",fontSize:13,cursor:"pointer"}}>Cancel</button>
+                      </div>
+                    </div>
+                  ):(
+                    <div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:14,marginBottom:12,fontSize:13,color:T.slate}}>
+                        {sp.terms&&<span><strong>Terms</strong> {sp.terms}</span>}
+                        {sp.delivery&&<span><strong>Delivery</strong> {sp.delivery}</span>}
+                        {sp.contact&&<span><strong>Contact</strong> {sp.contact}</span>}
+                        {sp.phone&&<span><strong>Phone</strong> {sp.phone}</span>}
+                        {sp.email&&<span><strong>Email</strong> {sp.email}</span>}
+                        {sp.address&&<span><strong>Address</strong> {sp.address}</span>}
+                      </div>
+                      {sp.notes&&<div style={{fontSize:12,color:T.muted,fontStyle:"italic",marginBottom:12}}>{sp.notes}</div>}
+                      {(wins[name]||[]).length>0&&(
+                        <div style={{marginBottom:10}}>
+                          <div style={{fontSize:11,color:T.teal,fontWeight:800,marginBottom:6}}>{"\u2713"} CHEAPEST ON</div>
+                          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                            {wins[name].map(wn=><Tag key={wn.ing} c={T.teal} bg={T.tealL} sm>{wn.ing} ${wn.price.toFixed(2)}{wn.vs?` (${wn.vs.sup} +$${wn.vs.gap.toFixed(2)})`:""}</Tag>)}
+                          </div>
+                        </div>
+                      )}
+                      {(losses[name]||[]).length>0&&(
+                        <div style={{marginBottom:12}}>
+                          <div style={{fontSize:11,color:T.coral,fontWeight:800,marginBottom:6}}>{"\u2717"} BEATEN ON</div>
+                          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                            {losses[name].map(ls=><Tag key={ls.ing} c={T.coral} bg={T.coralL} sm>{ls.ing} +${ls.gap.toFixed(2)} vs {ls.best}</Tag>)}
+                          </div>
+                        </div>
+                      )}
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                        <button onClick={()=>exportSupCsv(name)} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{"\u2b07"} Line items CSV</button>
+                        <button onClick={()=>startEdit(name,sp)} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{"\u270e"} Edit</button>
+                        <button onClick={()=>delSup(name)} style={{marginLeft:"auto",background:"none",border:`1px solid ${T.coral}55`,borderRadius:16,color:T.coral,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Delete</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── MULTI-LINE TREND CHART ──────────────────────────────────────────────
+function MultiLine({series,T,money=true}){
+  const pts=series[0]?.points||[];
+  if(!pts.length)return <div style={{padding:"20px 0",color:T.muted,fontSize:13,textAlign:"center"}}>Not enough data yet — enter more months of sales.</div>;
+  const W=560,H=190,pl=54,pr=14,pt=14,pb=34,iw=W-pl-pr,ih=H-pt-pb;
+  const all=series.flatMap(sr=>sr.points.map(p=>p.y));
+  const mx=Math.max(...all)*1.08||1,mn=0;
+  const tx=i=>pl+(pts.length>1?(i/(pts.length-1))*iw:iw/2);
+  const ty=v=>pt+ih-((v-mn)/(mx-mn))*ih;
+  const fv=v=>money?(v>=1000?`$${(v/1000).toFixed(0)}k`:`$${v.toFixed(0)}`):v>=1000?`${(v/1000).toFixed(1)}k`:`${Math.round(v)}`;
+  return(
+    <div>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{maxWidth:"100%"}}>
+        {[mn,(mn+mx)/2,mx].map((t,i)=><g key={i}><line x1={pl} y1={ty(t)} x2={W-pr} y2={ty(t)} stroke={T.border} strokeWidth="1" strokeDasharray="4 4"/><text x={pl-6} y={ty(t)+4} textAnchor="end" fontSize="10" fill={T.muted}>{fv(t)}</text></g>)}
+        {series.map((sr,si)=>(
+          <g key={si}>
+            <polyline points={sr.points.map((p,i)=>`${tx(i)},${ty(p.y)}`).join(" ")} fill="none" stroke={sr.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            {sr.points.map((p,i)=><circle key={i} cx={tx(i)} cy={ty(p.y)} r="3.5" fill={sr.color}/>)}
+          </g>
+        ))}
+        {pts.map((p,i)=><text key={i} x={tx(i)} y={H-pb+18} textAnchor="middle" fontSize="9" fill={T.muted}>{p.label}</text>)}
+      </svg>
+      <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:4}}>
+        {series.map((sr,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:T.slate}}><div style={{width:10,height:10,borderRadius:3,background:sr.color}}/>{sr.label}</div>)}
+      </div>
     </div>
   );
 }
@@ -667,6 +943,7 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
   const [fMonth,setFMonth]=useState("");
   const [fL1,setFL1]=useState("");
   const [fL2,setFL2]=useState("");
+  const [fMix,setFMix]=useState({});
   const [saving,setSaving]=useState(false);
   const [period,setPeriod]=useState("month");
   const [off,setOff]=useState(0);
@@ -675,20 +952,30 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
     for(let i=0;i<12;i++){const d=new Date(now.getFullYear(),now.getMonth()-i);opts.push(`${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()]} ${d.getFullYear()}`);}
     return opts;
   })();
+  const bowls=Object.keys(data.menu);
+  const mixComplete=bowls.every(b=>fMix[b]?.l1!==undefined&&fMix[b]?.l1!==""&&fMix[b]?.l2!==undefined&&fMix[b]?.l2!=="");
   const submit=async()=>{
-    if(!fMonth||(!fL1&&!fL2))return;
+    if(!fMonth||(!fL1&&!fL2)||!mixComplete)return;
     setSaving(true);
     const existing=data.sales[fMonth]||{};
     const l1=fL1!==""?(parseFloat(fL1)||0):(existing.loc1||0);
     const l2=fL2!==""?(parseFloat(fL2)||0):(existing.loc2||0);
-    await onSaveSales(fMonth,l1,l2);
-    setSaving(false);setShowForm(false);setFMonth("");setFL1("");setFL2("");
+    const mix={};
+    bowls.forEach(b=>{mix[b]={loc1:parseInt(fMix[b]?.l1)||0,loc2:parseInt(fMix[b]?.l2)||0};});
+    await onSaveSales(fMonth,l1,l2,mix);
+    setSaving(false);setShowForm(false);setFMonth("");setFL1("");setFL2("");setFMix({});
+  };
+  const pickMonth=(m)=>{
+    setFMonth(m);
+    const ex=data.sales[m];
+    if(ex?.mix){const pre={};Object.entries(ex.mix).forEach(([b,v])=>{pre[b]={l1:String(v.loc1||0),l2:String(v.loc2||0)};});setFMix(pre);}
+    else setFMix({});
   };
   const inp={width:"100%",background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"11px 14px",color:T.navy,fontSize:15,fontFamily:"inherit",outline:"none"};
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
-        <h2 style={{margin:0,fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Sales & P&L</h2>
+        <h2 style={{margin:0,fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Sales</h2>
         <button onClick={()=>setShowForm(v=>!v)} style={{background:showForm?"transparent":T.blue,color:showForm?T.muted:"#fff",border:showForm?`1px solid ${T.border}`:"none",borderRadius:20,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>{showForm?"Cancel":"+ Enter monthly sales"}</button>
       </div>
 
@@ -698,7 +985,7 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr auto",gap:10,alignItems:"end"}}>
             <div>
               <div style={{fontSize:11,color:T.muted,fontWeight:700,marginBottom:5}}>MONTH</div>
-              <select value={fMonth} onChange={e=>setFMonth(e.target.value)} style={inp}>
+              <select value={fMonth} onChange={e=>pickMonth(e.target.value)} style={inp}>
                 <option value="">Select month...</option>
                 {monthOptions.map(m=><option key={m} value={m}>{m}{data.sales[m]?" (update)":""}</option>)}
               </select>
@@ -711,8 +998,24 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
               <div style={{fontSize:11,color:T.muted,fontWeight:700,marginBottom:5}}>{data.locations.loc2.toUpperCase()} $</div>
               <input type="number" inputMode="decimal" placeholder="0.00" value={fL2} onChange={e=>setFL2(e.target.value)} style={inp}/>
             </div>
-            <button onClick={submit} disabled={saving||!fMonth||(!fL1&&!fL2)} style={{background:T.teal,color:"#fff",border:"none",borderRadius:10,padding:"12px 22px",fontSize:14,fontWeight:800,cursor:saving?"not-allowed":"pointer",opacity:saving||!fMonth||(!fL1&&!fL2)?0.6:1,whiteSpace:"nowrap"}}>{saving?"Saving...":"Save"}</button>
+            <button onClick={submit} disabled={saving||!fMonth||(!fL1&&!fL2)||!mixComplete} style={{background:T.teal,color:"#fff",border:"none",borderRadius:10,padding:"12px 22px",fontSize:14,fontWeight:800,cursor:saving?"not-allowed":"pointer",opacity:saving||!fMonth||(!fL1&&!fL2)||!mixComplete?0.6:1,whiteSpace:"nowrap"}}>{saving?"Saving...":"Save"}</button>
           </div>
+          {fMonth&&(
+            <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
+              <div style={{fontSize:12,fontWeight:800,color:T.navy,marginBottom:4}}>Bowls sold · required</div>
+              <div style={{fontSize:11,color:T.muted,marginBottom:10}}>From your POS monthly product report · enter 0 if none sold. Revenue and bowl counts are independent (drinks and extras mean they will not reconcile exactly).</div>
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:"6px 24px"}}>
+                {bowls.map(b=>(
+                  <div key={b} style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{flex:1,fontSize:13,fontWeight:600}}>{b}</div>
+                    <input type="number" inputMode="numeric" min="0" placeholder="L1" value={fMix[b]?.l1??""} onChange={e=>setFMix(p=>({...p,[b]:{...p[b],l1:e.target.value}}))} style={{...inp,width:70,textAlign:"right"}}/>
+                    <input type="number" inputMode="numeric" min="0" placeholder="L2" value={fMix[b]?.l2??""} onChange={e=>setFMix(p=>({...p,[b]:{...p[b],l2:e.target.value}}))} style={{...inp,width:70,textAlign:"right"}}/>
+                  </div>
+                ))}
+              </div>
+              {!mixComplete&&<div style={{marginTop:8,fontSize:11,color:T.amber,fontWeight:600}}>Fill every bowl count (use 0) to enable Save</div>}
+            </div>
+          )}
           {fMonth&&data.sales[fMonth]&&<div style={{marginTop:10,fontSize:12,color:T.amber,fontWeight:600}}>⚠ {fMonth} already has figures (${(data.sales[fMonth].loc1||0).toLocaleString()} / ${(data.sales[fMonth].loc2||0).toLocaleString()}) — saving will overwrite them.</div>}
         </div>
       )}
@@ -816,6 +1119,51 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
           </div>
         );
       })()}
+      {(()=>{
+        const MNx=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const entered=Object.keys(data.sales).sort((a,b)=>new Date("1 "+a)-new Date("1 "+b));
+        const pKey=(m)=>{
+          if(period==="month")return m;
+          const [mo,yr]=m.split(" ");
+          if(period==="quarter")return `Q${Math.floor(MNx.indexOf(mo)/3)+1} ${yr}`;
+          return yr;
+        };
+        const groups={};
+        entered.forEach(m=>{const k=pKey(m);if(!groups[k])groups[k]=[];groups[k].push(m);});
+        const keys=Object.keys(groups).slice(-8);
+        const unitsFor=(b,ms)=>ms.reduce((sum,m)=>{
+          const mx=data.sales[m]?.mix?.[b];if(!mx)return sum;
+          return sum+(locKey==="loc1"?(mx.loc1||0):locKey==="loc2"?(mx.loc2||0):((mx.loc1||0)+(mx.loc2||0)));
+        },0);
+        const cogsSales=[
+          {label:"Sales",color:T.blue,points:keys.map(k=>({label:k,y:groups[k].reduce((sum,m)=>sum+cRev(m,locKey),0)}))},
+          {label:"COGS",color:T.coral,points:keys.map(k=>({label:k,y:groups[k].reduce((sum,m)=>sum+cCOGS(m,locKey),0)}))},
+        ];
+        const bowlCols=[T.blue,T.teal,T.coral,T.amber,"#8B5CF6","#EC4899","#6366F1","#10B981"];
+        const bowlSeries=Object.keys(data.menu).map((b,i)=>({label:b,color:bowlCols[i%bowlCols.length],points:keys.map(k=>({label:k,y:unitsFor(b,groups[k])}))}));
+        const top3=Object.keys(data.menu).map(b=>({b,u:unitsFor(b,entered)})).sort((a,x)=>x.u-a.u).slice(0,3);
+        const profitSeries=top3.map((t,i)=>({label:`${t.b} profit`,color:bowlCols[i],points:keys.map(k=>({label:k,y:unitsFor(t.b,groups[k])*((data.menu[t.b]?.price||0)-bCost(t.b))}))}));
+        return(
+          <>
+            <div style={{...card,marginBottom:16}}>
+              <h3 style={{margin:"0 0 4px",fontSize:isMobile?15:18,fontWeight:800}}>COGS vs Sales trend</h3>
+              <div style={{fontSize:12,color:T.muted,marginBottom:12}}>Grouped by {period} · {locKey==="all"?"both locations":data.locations[locKey]}</div>
+              <MultiLine series={cogsSales} T={T}/>
+            </div>
+            <div style={{...card,marginBottom:16}}>
+              <h3 style={{margin:"0 0 4px",fontSize:isMobile?15:18,fontWeight:800}}>Units sold per bowl</h3>
+              <div style={{fontSize:12,color:T.muted,marginBottom:12}}>What sells best · needs bowl counts entered with monthly sales</div>
+              <MultiLine series={bowlSeries} T={T} money={false}/>
+            </div>
+            <div style={{...card,marginBottom:16}}>
+              <h3 style={{margin:"0 0 4px",fontSize:isMobile?15:18,fontWeight:800}}>Top 3 sellers · net profit</h3>
+              <div style={{fontSize:12,color:T.muted,marginBottom:12}}>Best sellers ranked by what they actually earn · profit uses current recipe costs</div>
+              <MultiLine series={profitSeries} T={T}/>
+            </div>
+          </>
+        );
+      })()}
+
       <div style={card}>
         <h3 style={{margin:"0 0 16px",fontSize:isMobile?16:20,fontWeight:800}}>Menu Cost Analysis <span style={{fontSize:12,color:T.muted,fontWeight:400}}>· Medium size bowls</span></h3>
         <div style={{display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",columnGap:32}}>
@@ -896,6 +1244,7 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
 
 // ─── INSIGHTS ────────────────────────────────────────────────────────────────
 function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,loadingInsights,generateInsights,insightChat,chatInput,setChatInput,chatLoading,sendChat}){
+  const [iView,setIView]=useState("cards");
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
@@ -926,9 +1275,52 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,loadingInsigh
       {aiInsights&&!loadingInsights&&(
         <div>
           <div style={{background:T.navy,borderRadius:16,padding:isMobile?"18px 20px":"24px 28px",marginBottom:16}}>
-            <div style={{fontSize:10,color:"rgba(255,255,255,0.5)",textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:8}}>✦ AI ANALYSIS · {latMon}</div>
+            <div style={{fontSize:10,color:"rgba(255,255,255,0.5)",textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:8}}>✦ Generated {new Date().toLocaleDateString("en-CA",{day:"numeric",month:"short",year:"numeric"})} · based on {latMon} data</div>
             <div style={{fontSize:isMobile?18:24,fontWeight:800,color:T.bg,lineHeight:1.3}}>{aiInsights.headline}</div>
           </div>
+          <div style={card}>
+            <div style={{fontSize:isMobile?15:17,fontWeight:700,marginBottom:4}}>Ask a question about your data</div>
+            <div style={{fontSize:13,color:T.muted,marginBottom:14}}>e.g. "Which bowl has the worst margin?" or "If tuna goes up 10% what happens?"</div>
+            {insightChat.length>0&&(
+              <div style={{marginBottom:14,maxHeight:320,overflowY:"auto"}}>
+                {insightChat.map((msg,i)=>(
+                  <div key={i} style={{marginBottom:10,display:"flex",justifyContent:msg.role==="user"?"flex-end":"flex-start"}}>
+                    <div style={{background:msg.role==="user"?T.blue:T.bg,color:msg.role==="user"?"#fff":T.navy,borderRadius:msg.role==="user"?"16px 16px 4px 16px":"16px 16px 16px 4px",padding:"10px 14px",maxWidth:"85%",fontSize:14,lineHeight:1.6,border:msg.role==="assistant"?`1px solid ${T.border}`:"none"}}>{msg.content}</div>
+                  </div>
+                ))}
+                {chatLoading&&<div style={{display:"flex",gap:4,padding:"10px 14px"}}>{[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:T.muted,animation:`bounce 1s ${i*0.15}s infinite`}}/>)}</div>}
+              </div>
+            )}
+            <div style={{display:"flex",gap:8}}>
+              <input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendChat()} placeholder="Ask anything about your costs and margins..." style={{flex:1,background:T.bg,border:`1px solid ${T.border}`,borderRadius:12,padding:"11px 16px",color:T.navy,fontSize:14,fontFamily:"inherit",outline:"none"}}/>
+              <button onClick={sendChat} disabled={chatLoading||!chatInput.trim()} style={{background:T.blue,color:"#fff",border:"none",borderRadius:12,padding:"11px 18px",fontSize:14,fontWeight:700,cursor:chatLoading||!chatInput.trim()?"not-allowed":"pointer",opacity:chatLoading||!chatInput.trim()?0.6:1,flexShrink:0}}>Send</button>
+            </div>
+          </div>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+            <div style={{display:"flex",gap:2,background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:2}}>
+              {[["cards","▦ Cards"],["list","≡ List"]].map(([id,lb])=>(
+                <button key={id} onClick={()=>setIView(id)} style={{background:iView===id?T.blue:"transparent",color:iView===id?"#fff":T.slate,border:"none",borderRadius:14,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{lb}</button>
+              ))}
+            </div>
+          </div>
+          {iView==="list"&&(
+            <div style={{...card,padding:0,overflow:"hidden",marginBottom:20}}>
+              {aiInsights.insights?.map((ins,i,arr)=>{
+                const col=ins.priority==="high"?T.coral:ins.priority==="medium"?T.amber:T.teal;
+                return(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:i<arr.length-1?`1px solid ${T.border}`:"none"}}>
+                    <span style={{fontSize:18,flexShrink:0}}>{ins.icon}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ins.title}</div>
+                      <div style={{fontSize:12,color:col,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>→ {ins.action}</div>
+                    </div>
+                    <Tag c={col} bg={ins.priority==="high"?T.coralL:ins.priority==="medium"?T.amberL:T.tealL} sm>{ins.priority?.toUpperCase()}</Tag>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {iView==="cards"&&(
           <div style={{display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",gap:10,marginBottom:20}}>
             {aiInsights.insights?.map((ins,i)=>{
               const col=ins.priority==="high"?T.coral:ins.priority==="medium"?T.amber:T.teal;
@@ -950,24 +1342,7 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,loadingInsigh
               );
             })}
           </div>
-          <div style={card}>
-            <div style={{fontSize:isMobile?15:17,fontWeight:700,marginBottom:4}}>Ask a question about your data</div>
-            <div style={{fontSize:13,color:T.muted,marginBottom:14}}>e.g. "Which bowl has the worst margin?" or "If tuna goes up 10% what happens?"</div>
-            {insightChat.length>0&&(
-              <div style={{marginBottom:14,maxHeight:320,overflowY:"auto"}}>
-                {insightChat.map((msg,i)=>(
-                  <div key={i} style={{marginBottom:10,display:"flex",justifyContent:msg.role==="user"?"flex-end":"flex-start"}}>
-                    <div style={{background:msg.role==="user"?T.blue:T.bg,color:msg.role==="user"?"#fff":T.navy,borderRadius:msg.role==="user"?"16px 16px 4px 16px":"16px 16px 16px 4px",padding:"10px 14px",maxWidth:"85%",fontSize:14,lineHeight:1.6,border:msg.role==="assistant"?`1px solid ${T.border}`:"none"}}>{msg.content}</div>
-                  </div>
-                ))}
-                {chatLoading&&<div style={{display:"flex",gap:4,padding:"10px 14px"}}>{[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:T.muted,animation:`bounce 1s ${i*0.15}s infinite`}}/>)}</div>}
-              </div>
-            )}
-            <div style={{display:"flex",gap:8}}>
-              <input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendChat()} placeholder="Ask anything about your costs and margins..." style={{flex:1,background:T.bg,border:`1px solid ${T.border}`,borderRadius:12,padding:"11px 16px",color:T.navy,fontSize:14,fontFamily:"inherit",outline:"none"}}/>
-              <button onClick={sendChat} disabled={chatLoading||!chatInput.trim()} style={{background:T.blue,color:"#fff",border:"none",borderRadius:12,padding:"11px 18px",fontSize:14,fontWeight:700,cursor:chatLoading||!chatInput.trim()?"not-allowed":"pointer",opacity:chatLoading||!chatInput.trim()?0.6:1,flexShrink:0}}>Send</button>
-            </div>
-          </div>
+          )}
         </div>
       )}
     </div>
@@ -975,7 +1350,20 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,loadingInsigh
 }
 
 // ─── MENU / RECIPE EDITOR ────────────────────────────────────────────────────
-function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload}){
+function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks}){
+  const [sub,setSub]=useState(selIng?"ingredients":"recipes");
+  const [histMonth,setHistMonth]=useState("live");
+  const MN2=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const histOptions=(()=>{const o=[];const now=new Date();for(let i=1;i<=12;i++){const d=new Date(now.getFullYear(),now.getMonth()-i);o.push(`${MN2[d.getMonth()]} ${d.getFullYear()}`);}return o;})();
+  const gILAt=(n,monthKey)=>{
+    const e=data.ingredients[n];if(!e||!e.length)return 0;
+    if(monthKey==="live")return e[e.length-1].price;
+    const mi=MN2.indexOf(monthKey.split(" ")[0]);const y=parseInt(monthKey.split(" ")[1]);
+    const cutoff=new Date(y,mi+1,0).getTime();
+    const valid=e.filter(x=>new Date(x.date).getTime()<=cutoff);
+    return valid.length?valid[valid.length-1].price:0;
+  };
+  const bCostAt=(item,monthKey)=>{const m=data.menu[item];if(!m)return 0;return Object.entries(m.ing).reduce((sum,[i,q])=>sum+gILAt(i,monthKey)*q,0);};
   const [sel,setSel]=useState(null);
   const [draft,setDraft]=useState(null); // {price, ing:{}}
   const [addSel,setAddSel]=useState("");
@@ -1012,6 +1400,13 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload}){
   };
   return(
     <div>
+      <div style={{display:"flex",gap:3,background:T.card,border:`1px solid ${T.border}`,borderRadius:20,padding:3,width:"fit-content",marginBottom:16}}>
+        {[["recipes","Recipes"],["ingredients","Ingredients"]].map(([id,lb])=>(
+          <button key={id} onClick={()=>setSub(id)} style={{background:sub===id?T.blue:"transparent",color:sub===id?"#fff":T.slate,border:"none",borderRadius:16,padding:"7px 18px",fontSize:13,fontWeight:sub===id?700:500,cursor:"pointer"}}>{lb}</button>
+        ))}
+      </div>
+      {sub==="ingredients"&&<Ingredients {...{T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,say,reload}}/>}
+      {sub==="recipes"&&(<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,flexWrap:"wrap",gap:8}}>
         <h2 style={{margin:0,fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Menu & Recipes</h2>
         <div style={{display:"flex",gap:8}}>
@@ -1019,7 +1414,15 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload}){
           <button onClick={createBowl} disabled={!newBowl.trim()} style={{background:T.blue,color:"#fff",border:"none",borderRadius:20,padding:"8px 16px",fontSize:13,fontWeight:700,cursor:"pointer",opacity:newBowl.trim()?1:0.5,whiteSpace:"nowrap"}}>+ Add bowl</button>
         </div>
       </div>
-      <p style={{margin:"0 0 18px",fontSize:isMobile?13:14,color:T.muted}}>Tap a bowl to edit portions and pricing. Costs recalculate live as you type — use it to test what-if changes before committing.</p>
+      <p style={{margin:"0 0 12px",fontSize:isMobile?13:14,color:T.muted}}>Tap a bowl to edit portions and pricing. Costs recalculate live as you type — use it to test what-if changes before committing.</p>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+        <span style={{fontSize:12,color:T.muted,fontWeight:700}}>Cost basis:</span>
+        <select value={histMonth} onChange={e=>setHistMonth(e.target.value)} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:16,padding:"7px 14px",color:T.navy,fontSize:13,fontWeight:600,outline:"none"}}>
+          <option value="live">Live (latest prices)</option>
+          {histOptions.map(m=><option key={m} value={m}>{m} prices</option>)}
+        </select>
+        {histMonth!=="live"&&<span style={{fontSize:12,color:T.amber,fontWeight:600}}>Showing costs as they were in {histMonth} · editing disabled</span>}
+      </div>
       {Object.keys(data.menu).length===0&&(
         <div style={{...card,textAlign:"center",padding:"48px 24px",color:T.muted}}>
           <div style={{fontSize:44,marginBottom:12}}>🍲</div>
@@ -1031,12 +1434,12 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload}){
         {Object.entries(data.menu).map(([name,m])=>{
           const isSel=sel===name;
           const d=isSel&&draft?draft:m;
-          const cost=isSel&&draft?draftCost(draft):bCost(name);
+          const cost=histMonth!=="live"?bCostAt(name,histMonth):(isSel&&draft?draftCost(draft):bCost(name));
           const price=parseFloat(d.price)||0;
           const fp=price?(cost/price)*100:0;
           const mg=price?((price-cost)/price)*100:0;
           return(
-            <div key={name} onClick={()=>!isSel&&open(name)} style={{...card,borderColor:isSel?T.blue:T.border,cursor:isSel?"default":"pointer",gridColumn:isSel&&isDesktop?"1 / -1":"auto"}}>
+            <div key={name} onClick={()=>histMonth==="live"&&!isSel&&open(name)} style={{...card,borderColor:isSel?T.blue:T.border,cursor:isSel?"default":"pointer",gridColumn:isSel&&isDesktop?"1 / -1":"auto"}}>
               <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
                 <div style={{flex:1,minWidth:120}}>
                   <div style={{fontSize:isMobile?15:17,fontWeight:700}}>{name}</div>
@@ -1077,6 +1480,7 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload}){
           );
         })}
       </div>
+      </div>)}
     </div>
   );
 }
