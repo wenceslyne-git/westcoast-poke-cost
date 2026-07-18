@@ -12,6 +12,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 export const OWNER_EMAILS = [
   "wenceslyne@elitelvlservices.com",
   "sbgomez604@gmail.com",
+  "r_gomez_02@yahoo.com",
 ];
 
 export const isOwner = (email) =>
