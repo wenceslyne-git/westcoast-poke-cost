@@ -21,22 +21,8 @@ export const DARK = {
 };
 
 export const DATA = {
-  ingredients:{
-    "Ahi Tuna":           [{date:"2025-12-01",price:28.50,unit:"lb",supplier:"Pacific Foods"},{date:"2026-02-20",price:34.50,unit:"lb",supplier:"Pacific Foods"},{date:"2026-05-22",price:36.80,unit:"lb",supplier:"Pacific Foods"}],
-    "Albacore Tuna":      [{date:"2025-12-01",price:22.00,unit:"lb",supplier:"Pacific Foods"},{date:"2026-05-22",price:25.50,unit:"lb",supplier:"Pacific Foods"}],
-    "Atlantic Salmon":    [{date:"2025-12-01",price:18.00,unit:"lb",supplier:"BC Seafood"},{date:"2026-03-08",price:21.00,unit:"lb",supplier:"BC Seafood"},{date:"2026-05-22",price:22.50,unit:"lb",supplier:"BC Seafood"}],
-    "Wild Sockeye Salmon":[{date:"2025-12-01",price:24.00,unit:"lb",supplier:"BC Seafood"},{date:"2026-05-22",price:28.00,unit:"lb",supplier:"BC Seafood"}],
-    "Prawn":              [{date:"2025-12-01",price:16.00,unit:"lb",supplier:"Pacific Foods"},{date:"2026-05-22",price:18.50,unit:"lb",supplier:"Pacific Foods"}],
-    "Chicken":            [{date:"2025-12-01",price:8.50,unit:"lb",supplier:"Fresh Direct"},{date:"2026-05-22",price:9.20,unit:"lb",supplier:"Fresh Direct"}],
-    "Sushi Rice":         [{date:"2025-12-01",price:42.00,unit:"25kg",supplier:"Asia Grocery"},{date:"2026-05-01",price:48.00,unit:"25kg",supplier:"Asia Grocery"}],
-    "Avocado":            [{date:"2025-12-01",price:1.20,unit:"each",supplier:"Fresh Direct"},{date:"2026-03-15",price:2.10,unit:"each",supplier:"Fresh Direct"},{date:"2026-05-22",price:1.85,unit:"each",supplier:"Fresh Direct"}],
-    "Mango":              [{date:"2026-02-01",price:1.50,unit:"each",supplier:"Fresh Direct"},{date:"2026-05-22",price:1.80,unit:"each",supplier:"Fresh Direct"}],
-    "Edamame":            [{date:"2025-12-01",price:8.50,unit:"kg",supplier:"Fresh Direct"},{date:"2026-05-22",price:8.80,unit:"kg",supplier:"Fresh Direct"}],
-    "Cucumber":           [{date:"2026-01-01",price:0.80,unit:"each",supplier:"Fresh Direct"},{date:"2026-05-22",price:0.90,unit:"each",supplier:"Fresh Direct"}],
-    "Sesame Oil":         [{date:"2025-12-01",price:12.00,unit:"bottle",supplier:"Asia Grocery"},{date:"2026-03-10",price:13.50,unit:"bottle",supplier:"T&T"}],
-    "Crab Salad":         [{date:"2025-12-01",price:14.00,unit:"kg",supplier:"Pacific Foods"},{date:"2026-05-22",price:16.50,unit:"kg",supplier:"Pacific Foods"}],
-    "Pineapple":          [{date:"2025-12-01",price:3.50,unit:"each",supplier:"Fresh Direct"},{date:"2026-05-22",price:4.20,unit:"each",supplier:"Fresh Direct"}],
-  },
+  ingredients:{},
+
   suppliers:{
     "Pacific Foods":  {type:"trade",contact:"",phone:"",email:"",terms:"Net 14",delivery:"Mon/Wed/Fri",notes:"Primary seafood trade account."},
     "BC Seafood":     {type:"trade",contact:"",phone:"",email:"",terms:"Net 7",delivery:"Tue/Thu",notes:"Salmon and seafood supplier."},
@@ -55,12 +41,10 @@ export const DATA = {
     "Coast":    {price:18.95,ing:{"Atlantic Salmon":0.31,"Sushi Rice":0.22,"Mango":0.5,"Avocado":0.5,"Crab Salad":0.08}},
     "Chief":    {price:21.95,ing:{"Wild Sockeye Salmon":0.31,"Sushi Rice":0.22,"Edamame":0.1,"Pineapple":0.25,"Avocado":0.5}},
   },
-  sales:{
-    "Apr 2026":{loc1:28400,loc2:21600,mix:{"Aloha":{loc1:180,loc2:130},"Dynamite":{loc1:150,loc2:110},"Teriyaki":{loc1:120,loc2:90},"Pacific":{loc1:100,loc2:80},"Cascade":{loc1:130,loc2:100},"Coast":{loc1:110,loc2:85},"Chief":{loc1:80,loc2:60}}},
-    "May 2026":{loc1:31200,loc2:23800,mix:{"Aloha":{loc1:200,loc2:145},"Dynamite":{loc1:165,loc2:120},"Teriyaki":{loc1:135,loc2:100},"Pacific":{loc1:110,loc2:88},"Cascade":{loc1:145,loc2:110},"Coast":{loc1:120,loc2:95},"Chief":{loc1:90,loc2:68}}},
-  },
+  sales:{},
+
   locations:{ loc1:"West 8th & Cambie", loc2:"Ironwood Plaza" },
-  alerts:{"Ahi Tuna":34,"Avocado":2.00,"Atlantic Salmon":22},
+  alerts:{},
   receipts:[],
 };
 

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { LIGHT, DARK, DATA, gL, gPct, fmt, fmtK, useBreakpoint, Spark, PriceChart, WCP_LOGO } from "./data.jsx";
 import { supabase, isOwner } from "./supabase.js";
-import { loadAll, seedIfEmpty, saveReceipt, saveSales, addPrice, deletePriceEntry, deleteIngredient, deleteSupplier, upsertSupplier, saveMenuItem, deleteMenuItem, saveAlert } from "./db.js";
+import { loadAll, seedIfEmpty, saveReceipt, saveSales, addPrice, deletePriceEntry, deleteIngredient, deleteSupplier, upsertSupplier, saveMenuItem, deleteMenuItem, saveAlert, saveMarketChecks, loadMarketChecks, canRunToday, recordRun } from "./db.js";
 import Login from "./Login.jsx";
 
 const API_HEADERS = () => ({
@@ -48,6 +48,9 @@ export default function App(){
         await seedIfEmpty();
         const d=await loadAll();
         if(!cancelled)setData(d);
+        const mk=await loadMarketChecks();
+        if(!cancelled)setMarket(mk);
+        if(!cancelled)await refreshCaps();
       }catch(e){console.error("DB load failed",e);}
       if(!cancelled)setDbLoading(false);
     })();
@@ -69,6 +72,13 @@ export default function App(){
   const [chkAll,setChkAll]=useState(false);
   const [scanLoc,setScanLoc]=useState("all");
   const [insightsStale,setInsightsStale]=useState(false);
+  const [market,setMarket]=useState({});
+  const [caps,setCaps]=useState({});
+  const refreshCaps=async()=>{
+    const out={};
+    for(const a of ["price_check","discovery","preferred_refresh"]){out[a]=await canRunToday(a);}
+    setCaps(out);
+  };
   const reload=async()=>{try{const d=await loadAll();setData(d);setInsightsStale(true);}catch(e){console.error(e);}};
   const [aiInsights,setAiInsights]=useState(null);
   const [loadingInsights,setLoadingInsights]=useState(false);
@@ -80,7 +90,24 @@ export default function App(){
   const say=(msg,err)=>{setToast({msg,err});setTimeout(()=>setToast(null),4000);};
 
   // ── computed ──
-  const gIL=n=>{const e=data.ingredients[n];return e&&e.length?gL(e):0;};
+  const normPrice=(price,unit)=>{
+    const m=/^(\d+(?:\.\d+)?)\s*(kg|g|l|ml|lb|oz)$/i.exec((unit||"").trim());
+    if(!m)return price;
+    const n=parseFloat(m[1]);
+    return n>0?price/n:price;
+  };
+  const gIL=n=>{const e=data.ingredients[n];if(!e||!e.length)return 0;const last=e[e.length-1];return normPrice(last.price,last.unit);};
+  const MNC=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const gILAtApp=(n,monthKey)=>{
+    const e=data.ingredients[n];if(!e||!e.length)return 0;
+    const mi=MNC.indexOf(monthKey.split(" ")[0]);const y=parseInt(monthKey.split(" ")[1]);
+    if(mi<0||!y)return gIL(n);
+    const cutoff=new Date(y,mi+1,0).getTime();
+    const valid=e.filter(x=>new Date(x.date).getTime()<=cutoff);
+    if(!valid.length)return 0;
+    const last=valid[valid.length-1];return normPrice(last.price,last.unit);
+  };
+  const bCostAtApp=(item,monthKey)=>{const m=data.menu[item];if(!m)return 0;return Object.entries(m.ing).reduce((sum,[i,q])=>sum+gILAtApp(i,monthKey)*q,0);};
   const bCost=item=>{const m=data.menu[item];if(!m)return 0;return Object.entries(m.ing).reduce((s,[i,q])=>s+gIL(i)*q,0);};
   const bFCP=item=>{const m=data.menu[item];if(!m)return 0;return(bCost(item)/m.price)*100;};
   const bMargin=item=>{const m=data.menu[item];if(!m)return 0;return((m.price-bCost(item))/m.price)*100;};
@@ -183,20 +210,30 @@ export default function App(){
     const usePref=!market&&prefs.length>0;
     const where=usePref?`at these specific suppliers: ${prefs.join(", ")} (Vancouver BC area)`:`at Costco, T&T Supermarket, H-Mart, Save-On-Foods, local markets in Vancouver BC Canada`;
     try{
-      const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:800,tools:[{type:"web_search_20250305",name:"web_search"}],messages:[{role:"user",content:`Search current price of "${ing}" per ${unit} ${where}. Return ONLY JSON no markdown: {"marketRange":{"low":0.00,"high":0.00},"sources":[{"store":"Name","price":0.00,"notes":"brief"}],"verdict":"good|high|very_high","recommendation":"one actionable sentence"}. Verdict: good=at/below market, high=10-25% above, very_high=25%+ above. No data: {"error":"No reliable price data"}`}]})});
+      const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:800,tools:[{type:"web_search_20250305",name:"web_search",max_uses:2}],messages:[{role:"user",content:`Search current price of "${ing}" per ${unit} ${where}. Return ONLY JSON no markdown: {"marketRange":{"low":0.00,"high":0.00},"sources":[{"store":"Name","price":0.00,"url":"real page URL or empty string","notes":"brief"}],"verdict":"good|high|very_high","recommendation":"one actionable sentence"}. Every source MUST include the real url of the page the price came from; if you cannot verify a price with a real page, omit it. No data: {"error":"No reliable price data"}`}]})});
       const out=await r.json();
       const txt=out.content?.find(b=>b.type==="text")?.text||"";
       const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
       if(parsed.error)setChecks(p=>({...p,[ing]:{status:"err",msg:parsed.error}}));
-      else setChecks(p=>({...p,[ing]:{status:"ok",data:parsed,paying:price,at:new Date().toLocaleDateString("en-CA"),scope:usePref?"preferred":"market"}}));
+      else{
+        setChecks(p=>({...p,[ing]:{status:"ok",data:parsed,paying:price,at:new Date().toLocaleDateString("en-CA"),scope:usePref?"preferred":"market"}}));
+        const verified=(parsed.sources||[]).filter(x=>x.url&&/^https?:\/\//.test(x.url));
+        if(verified.length){
+          const rows=verified.map(x=>({ingredient:ing,price:x.price,unit,source:x.store,url:x.url,checked_at:new Date().toISOString()}));
+          try{await saveMarketChecks(rows);setMarket(m=>({...m,[ing]:[...(m[ing]||[]),...rows.map(x=>({price:Number(x.price),unit:x.unit,source:x.source,url:x.url,at:x.checked_at}))]}));}catch(e){}
+        }
+      }
     }catch(e){setChecks(p=>({...p,[ing]:{status:"err",msg:"Search failed. Try again."}}));}
     setChkIng(null);
   };
 
   const doAllChecks=async()=>{
+    const gate=await canRunToday("price_check");
+    if(!gate.allowed){say(`Already checked today${gate.last?.by_email?" by "+gate.last.by_email.split("@")[0]:""} — next check tomorrow`,true);return;}
     setChkAll(true);
+    await recordRun("price_check",session?.user?.email);
     for(const[n,e]of Object.entries(data.ingredients))await doCheck(n,e[0]?.unit||"unit",gL(e));
-    setChkAll(false);say("All price checks complete");
+    setChkAll(false);await refreshCaps();say("Daily price check complete");
   };
 
   // ── AI insights ──
@@ -208,12 +245,16 @@ export default function App(){
     topMovers:movers.slice(0,5).map(m=>({ingredient:m.n,changePct:m.ch.toFixed(1),price:`$${m.lat.toFixed(2)}/${m.unit}`})),
     menu:Object.entries(data.menu).map(([name,m])=>({name,sell:m.price,cost:bCost(name).toFixed(2),foodCostPct:bFCP(name).toFixed(1)})),
     alerts:activeAlerts.map(([i,t])=>({ingredient:i,threshold:t,current:gL(data.ingredients[i]).toFixed(2)})),
+    marketSignals:Object.entries(market).slice(0,20).map(([ing,rows])=>{
+      const latest=rows[rows.length-1];const first=rows[0];
+      return {ingredient:ing,latestMarket:latest?`$${latest.price} (${latest.source}, ${String(latest.at).slice(0,10)})`:null,checksRecorded:rows.length,marketTrendPct:rows.length>=3&&first.price?(((latest.price-first.price)/first.price)*100).toFixed(1):null,advisory:true};
+    }),
   });
 
   const generateInsights=async()=>{
     setLoadingInsights(true);setAiInsights(null);setInsightsStale(false);
     try{
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:1500,messages:[{role:"user",content:`You are a food cost analyst for Westcoast Poké, a two-location poke restaurant in Vancouver BC. Data: ${buildDataSummary()}\n\nGive 4-5 specific actionable insights referencing actual numbers, bowls and ingredients from the data. Return ONLY JSON no markdown: {"headline":"one punchy sentence on the biggest issue or opportunity","insights":[{"priority":"high|medium|low","icon":"emoji","title":"short title with a number","detail":"2-3 sentences with specific numbers","action":"exactly what to do next"}]}`}]})});
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:1500,messages:[{role:"user",content:`You are a food cost analyst for Westcoast Poké, a two-location poke restaurant in Vancouver BC. Data: ${buildDataSummary()}\n\nData notes: prices in ingredients are what the restaurant actually pays (receipts). marketSignals are advisory web-check results with dates — use them for comparisons and direction but never treat them as paid prices, and always cite the check date. Give 4-5 specific actionable insights referencing actual numbers, bowls and ingredients from the data. If marketSignals exist, one insight should compare paid vs market with the monthly dollar impact. Also choose ONE focus bowl to push this month using margins, market direction and sales mix together. Return ONLY JSON no markdown: {"headline":"one punchy sentence on the biggest issue or opportunity","focus":{"bowl":"name","reason":"2 sentences: why this bowl now, citing data","contingency":"one sentence: what to revisit if conditions change"},"insights":[{"priority":"high|medium|low","icon":"emoji","title":"short title with a number","detail":"2-3 sentences with specific numbers","action":"exactly what to do next"}]}`}]})});
       const out=await res.json();
       const txt=out.content?.find(b=>b.type==="text")?.text||"";
       setAiInsights(JSON.parse(txt.replace(/```json|```/g,"").trim()));
@@ -312,9 +353,9 @@ export default function App(){
         <div style={{flex:1,minWidth:0}}>
       <div style={{padding:isMobile?"16px":"28px 32px",maxWidth:MAXW,margin:"0 auto"}}>
         {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,cogs,gp,fcp,revDelta,data,movers,actions,cRev,cCOGS,setSelIng,setTab,bCost,bFCP,bMargin}}/>}
-        {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks}}/>}
+        {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,market}}/>}
         {tab==="suppliers"&&<Suppliers {...{T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,reload}}/>}
-        {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bFCP,bMargin,months,onSaveSales:async(month,l1,l2,mix)=>{
+        {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bCostAtApp,bFCP,bMargin,months,onSaveSales:async(month,l1,l2,mix)=>{
           const u=JSON.parse(JSON.stringify(data));
           u.sales[month]={loc1:l1,loc2:l2,mix:mix||{}};
           setData(u);
@@ -409,6 +450,13 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
         <div style={card}>
           <div style={{fontSize:isMobile?15:17,fontWeight:700,marginBottom:4}}>Best price today</div>
           <div style={{fontSize:12,color:T.muted,marginBottom:14}}>Cheapest known supplier per ingredient · date shows how fresh the price is</div>
+          {Object.keys(data.ingredients).length===0&&(
+            <div style={{textAlign:"center",padding:"24px 12px",color:T.muted}}>
+              <div style={{fontSize:30,marginBottom:8}}>🧾</div>
+              <div style={{fontSize:13,fontWeight:700,color:T.slate,marginBottom:4}}>No prices recorded yet</div>
+              <div style={{fontSize:12,lineHeight:1.6}}>Scan your first receipt and the cheapest supplier for every ingredient appears here.</div>
+            </div>
+          )}
           <div style={{maxHeight:340,overflowY:"auto"}}>
             {Object.entries(data.ingredients).map(([ing,entries],i,arr)=>{
               const bySup={};
@@ -435,8 +483,14 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
 
         <div style={card}>
           <div style={{fontSize:isMobile?15:17,fontWeight:700,marginBottom:4}}>What to push</div>
-          <div style={{fontSize:12,color:T.muted,marginBottom:14}}>Bowls ranked by net profit · market these hardest</div>
-          {Object.entries(data.menu).map(([b,m])=>({b,margin:bMargin(b),profit:m.price-bCost(b)})).sort((a,b)=>b.profit-a.profit).map((r,i,arr)=>(
+          <div style={{fontSize:12,color:T.muted,marginBottom:14}}>Your most profitable bowls right now, costed from the latest prices you have recorded. Tell the team to recommend the top one — every sale of it earns more than any other bowl.</div>
+          {(Object.keys(data.ingredients).length===0||Object.keys(data.menu).every(b=>bCost(b)===0))?(
+            <div style={{textAlign:"center",padding:"24px 12px",color:T.muted}}>
+              <div style={{fontSize:30,marginBottom:8}}>📋</div>
+              <div style={{fontSize:13,fontWeight:700,color:T.slate,marginBottom:4}}>Nothing to rank yet</div>
+              <div style={{fontSize:12,lineHeight:1.6}}>Bowl costs build as you scan receipts or add prices. Once your ingredients have real prices, this ranking appears automatically.</div>
+            </div>
+          ):Object.entries(data.menu).map(([b,m])=>({b,margin:bMargin(b),profit:m.price-bCost(b)})).sort((a,b)=>b.profit-a.profit).map((r,i,arr)=>(
             <div key={r.b} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:i<arr.length-1?`1px solid ${T.border}`:"none"}}>
               <div style={{width:22,height:22,borderRadius:"50%",background:i===0?T.teal:T.bg,color:i===0?"#fff":T.muted,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0,border:i===0?"none":`1px solid ${T.border}`}}>{i+1}</div>
               <div style={{flex:1,fontSize:isMobile?13:14,fontWeight:600}}>{r.b}{i===0&&<span style={{marginLeft:8,fontSize:10,color:T.teal,fontWeight:800}}>PUSH</span>}</div>
@@ -465,12 +519,12 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
 const fmtK2 = n => typeof n==="number"&&n>=1000?`$${(n/1000).toFixed(1)}k`:typeof n==="number"?`$${n.toLocaleString("en-CA",{minimumFractionDigits:2,maximumFractionDigits:2})}`:n;
 
 // ─── INGREDIENTS ─────────────────────────────────────────────────────────────
-function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,say,reload}){
+function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,say,reload,market}){
   const [showAdd,setShowAdd]=useState(false);
   const [mIng,setMIng]=useState("");const [mPrice,setMPrice]=useState("");const [mUnit,setMUnit]=useState("lb");const [mSup,setMSup]=useState("");const [mDate,setMDate]=useState(new Date().toISOString().slice(0,10));
   const [mSaving,setMSaving]=useState(false);
   const [thrEdit,setThrEdit]=useState("");
-  const [iView,setIView]=useState("cards");
+  const [iView,setIView]=useState("list");
   const inp={background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px",color:T.navy,fontSize:14,fontFamily:"inherit",outline:"none",width:"100%"};
   const submitManual=async()=>{
     if(!mIng.trim()||!mPrice)return;
@@ -502,7 +556,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,flexWrap:"wrap",gap:8}}>
-        <h2 style={{margin:0,fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Ingredients <span style={{fontSize:isMobile?14:16,color:T.muted,fontWeight:400}}>({Object.keys(data.ingredients).length})</span></h2>
+        <div style={{fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6,maxWidth:560}}>Every price you have recorded, from receipts and manual entries, with the trend since you started tracking ({Object.keys(data.ingredients).length} ingredients). Tap one for its full history, market outlook, and alerts.</div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <div style={{display:"flex",gap:2,background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:2}}>
             {[["cards","▦"],["list","≡"]].map(([id,ic])=>(
@@ -510,7 +564,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
             ))}
           </div>
           <button onClick={()=>setShowAdd(v=>!v)} style={{background:showAdd?"transparent":T.blue,color:showAdd?T.muted:"#fff",border:showAdd?`1px solid ${T.border}`:"none",padding:"8px 16px",borderRadius:20,fontSize:13,cursor:"pointer",fontWeight:700}}>{showAdd?"Cancel":"+ Add price"}</button>
-          <button onClick={doAllChecks} disabled={chkAll} style={{background:T.tealL,border:`1px solid ${T.teal}44`,color:T.teal,padding:"8px 16px",borderRadius:20,fontSize:13,cursor:chkAll?"not-allowed":"pointer",fontWeight:700,opacity:chkAll?0.6:1}}>{chkAll?"🔍 Checking...":"🔍 Check all prices"}</button>
+          <button onClick={doAllChecks} disabled={chkAll} style={{background:T.tealL,border:`1px solid ${T.teal}44`,color:T.teal,padding:"8px 16px",borderRadius:20,fontSize:13,cursor:chkAll?"not-allowed":"pointer",fontWeight:700,opacity:chkAll?0.6:1}}>{chkAll?"🔍 Checking...":`🔍 Check prices · ~$${(0.02*Math.max(1,Object.keys(data.ingredients).length)).toFixed(2)} · 1/day`}</button>
         </div>
       </div>
 
@@ -584,6 +638,24 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
                       </div>
                     ))}
                   </div>
+                  {entries.length>=4&&(()=>{
+                    const last3=entries.slice(-3).map(e=>e.price);
+                    const slope=(last3[2]-last3[0])/2;
+                    const projected=Math.max(0,last3[2]+slope*3);
+                    if(Math.abs(slope)<0.01)return null;
+                    return <div style={{marginTop:12,fontSize:12,color:T.slate}}>Trending toward ~<strong>${fmt(projected)}/{entries[0]?.unit}</strong> in 3 months <Tag c={T.slate} bg={T.bg} sm>FORECAST</Tag></div>;
+                  })()}
+                  {(market[name]||[]).length>=3&&(()=>{
+                    const mk=market[name];
+                    const first=mk[0].price,latest=mk[mk.length-1].price;
+                    const chg=first?((latest-first)/first)*100:0;
+                    return(
+                      <div style={{marginTop:10,background:T.amberL,border:`1px solid ${T.amber}33`,borderRadius:10,padding:"10px 14px"}}>
+                        <div style={{fontSize:12,fontWeight:700,color:T.slate,marginBottom:2}}>Market outlook <Tag c={T.amber} bg={T.amberL} sm>ADVISORY</Tag></div>
+                        <div style={{fontSize:12,color:T.slate}}>Market {chg>1?`rising ${chg.toFixed(0)}%`:chg<-1?`falling ${Math.abs(chg).toFixed(0)}%`:"flat"} across your last {mk.length} checks · latest ${fmt(latest)} vs you paying ${fmt(gL(entries))}</div>
+                      </div>
+                    );
+                  })()}
                   <div style={{display:"flex",gap:8,alignItems:"center",marginTop:14,flexWrap:"wrap"}}>
                     <span style={{fontSize:12,color:T.muted,fontWeight:700}}>Price alert above $</span>
                     <input type="number" inputMode="decimal" defaultValue={thr||""} onChange={e=>setThrEdit(e.target.value)} placeholder="none" style={{width:90,background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"7px 10px",color:T.navy,fontSize:13,outline:"none"}}/>
@@ -593,7 +665,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
                   <div style={{marginTop:16}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                       <div style={{fontSize:14,fontWeight:700}}>Vancouver Market Price Check</div>
-                      <button onClick={()=>doCheck(name,entries[0]?.unit||"unit",lat)} disabled={chkIng===name} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:20,color:T.blue,padding:"5px 12px",fontSize:12,cursor:chkIng===name?"not-allowed":"pointer",fontWeight:700,opacity:chkIng===name?0.5:1}}>{chkIng===name?"Searching...":pc?"🔄 Refresh":"🔍 Check now"}</button>
+                      <span style={{fontSize:11,color:T.muted}}>{chkIng===name?"Searching...":pc?"":"Runs with the daily price check"}</span>
                     </div>
                     {pc?.status==="loading"&&<div style={{background:T.blueL,borderRadius:10,padding:14,fontSize:14,color:T.blue}}>Searching Vancouver retailers...</div>}
                     {pc?.status==="err"&&<div style={{background:T.coralL,borderRadius:10,padding:14,fontSize:14,color:T.coral}}>{pc.msg}</div>}
@@ -612,7 +684,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
                                 <div key={si} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderBottom:si<r.sources.length-1?`1px solid ${T.border}`:"none"}}>
                                   <div style={{width:6,height:6,borderRadius:"50%",background:cheap?T.teal:T.border,flexShrink:0}}/>
                                   <div style={{flex:1}}>
-                                    <div style={{fontSize:14,fontWeight:600}}>{src.store}</div>
+                                    <div style={{fontSize:14,fontWeight:600}}>{src.url&&/^https?:\/\//.test(src.url)?<a href={src.url} target="_blank" rel="noopener noreferrer" style={{color:T.blue,textDecoration:"none"}}>{src.store} ↗</a>:<span>{src.store} <span style={{fontSize:10,color:T.amber,fontWeight:700}}>UNVERIFIED</span></span>}</div>
                                     {src.notes&&<div style={{fontSize:11,color:T.muted}}>{src.notes}</div>}
                                   </div>
                                   <div style={{textAlign:"right"}}>
@@ -626,7 +698,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
                           <div style={{fontSize:13,color:vc,fontWeight:600,marginBottom:6}}>💡 {r.recommendation}</div>
                           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                             <div style={{fontSize:11,color:T.muted}}>Checked {pc.at} · {pc.scope==="preferred"?"Preferred suppliers":"Market-wide"} · indicative only</div>
-                            {pc.scope==="preferred"&&<button onClick={()=>doCheck(name,entries[0]?.unit||"unit",lat,true)} style={{background:"none",border:"none",color:T.blue,fontSize:11,fontWeight:700,cursor:"pointer",textDecoration:"underline",padding:0}}>Search wider market instead</button>}
+                            
                           </div>
                         </div>
                       );
@@ -652,6 +724,7 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
   const [adding,setAdding]=useState(false);
   const [dCat,setDCat]=useState("Any");
   const [dRad,setDRad]=useState(20);
+  const [dLoc,setDLoc]=useState("both");
   const [dBusy,setDBusy]=useState(false);
   const [dResults,setDResults]=useState(null);
   const [refBusy,setRefBusy]=useState(false);
@@ -694,9 +767,12 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
     setAdding(false);
   };
   const discover=async()=>{
+    const gate=await canRunToday("discovery");
+    if(!gate.allowed){say(`Discovery already used today${gate.last?.by_email?" by "+gate.last.by_email.split("@")[0]:""} — available tomorrow`,true);return;}
     setDBusy(true);setDResults(null);
+    await recordRun("discovery","");
     try{
-      const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:1200,tools:[{type:"web_search_20250305",name:"web_search"}],messages:[{role:"user",content:`Find wholesale/trade food suppliers within ${dRad}km of a poke restaurant with locations at West 8th & Cambie Vancouver BC and Ironwood Plaza Richmond BC. Category: ${dCat==="Any"?"seafood, produce or dry goods":dCat}. Prioritise wholesalers and distributors over retail. Return ONLY JSON no markdown: {"suppliers":[{"name":"","category":"","distance":"~Xkm from <location>","address":"","notes":"one line: what they offer, trade terms if known"}]}. Max 6 results. If nothing found: {"suppliers":[]}`}]})});
+      const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:1200,tools:[{type:"web_search_20250305",name:"web_search",max_uses:2}],messages:[{role:"user",content:`Find wholesale/trade food suppliers within ${dRad}km of ${dLoc==="loc1"?"West 8th & Cambie, Vancouver BC":dLoc==="loc2"?"Ironwood Plaza, Richmond BC":"a poke restaurant with locations at West 8th & Cambie Vancouver BC and Ironwood Plaza Richmond BC"}. Measure distance from ${dLoc==="both"?"whichever location is nearer":"that location only"}. Category: ${dCat==="Any"?"seafood, produce or dry goods":dCat}. Prioritise wholesalers and distributors over retail. Return ONLY JSON no markdown: {"suppliers":[{"name":"","category":"","distance":"~Xkm from <location>","address":"","notes":"one line: what they offer, trade terms if known"}]}. Max 6 results. If nothing found: {"suppliers":[]}`}]})});
       const out=await r.json();
       const txt=out.content?.find(b=>b.type==="text")?.text||"";
       const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
@@ -718,12 +794,15 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
   const refreshPreferred=async()=>{
     const prefs=Object.entries(data.suppliers).filter(([,sp])=>sp.preferred).map(([n])=>n);
     if(!prefs.length){say("No preferred suppliers yet — star some first",true);return;}
+    const gate=await canRunToday("preferred_refresh");
+    if(!gate.allowed){say(`Preferred refresh already used today${gate.last?.by_email?" by "+gate.last.by_email.split("@")[0]:""} — available tomorrow`,true);return;}
     setRefBusy(true);setRefResults(null);
+    await recordRun("preferred_refresh","");
     const ingList=Object.entries(data.ingredients).map(([n,e])=>`${n} (per ${e[0]?.unit||"unit"})`).join(", ");
     const results={};
     for(const supName of prefs){
       try{
-        const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:900,tools:[{type:"web_search_20250305",name:"web_search"}],messages:[{role:"user",content:`Search current prices at "${supName}" in Vancouver BC area for these restaurant ingredients: ${ingList}. Return ONLY JSON no markdown: {"found":[{"ingredient":"","price":0.00,"unit":"","notes":"brief"}]}. Only include items with a genuine price signal. If none: {"found":[]}`}]})});
+        const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:900,tools:[{type:"web_search_20250305",name:"web_search",max_uses:2}],messages:[{role:"user",content:`Search current prices at "${supName}" in Vancouver BC area for these restaurant ingredients: ${ingList}. Return ONLY JSON no markdown: {"found":[{"ingredient":"","price":0.00,"unit":"","notes":"brief"}]}. Only include items with a genuine price signal. If none: {"found":[]}`}]})});
         const out=await r.json();
         const txt=out.content?.find(b=>b.type==="text")?.text||"";
         const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
@@ -773,9 +852,12 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
               {["Any","Seafood","Produce","Dry goods"].map(c=><option key={c}>{c}</option>)}
             </select>
             <div style={{display:"flex",gap:2,background:T.bg,border:`1px solid ${T.border}`,borderRadius:14,padding:2}}>
+              {[["both","Both"],["loc1","West 8th"],["loc2","Ironwood"]].map(([id,lb])=><button key={id} onClick={()=>setDLoc(id)} style={{background:dLoc===id?T.blue:"transparent",color:dLoc===id?"#fff":T.slate,border:"none",borderRadius:12,padding:"4px 10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{lb}</button>)}
+            </div>
+            <div style={{display:"flex",gap:2,background:T.bg,border:`1px solid ${T.border}`,borderRadius:14,padding:2}}>
               {[10,20,30].map(r=><button key={r} onClick={()=>setDRad(r)} style={{background:dRad===r?T.blue:"transparent",color:dRad===r?"#fff":T.slate,border:"none",borderRadius:12,padding:"4px 10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{r}km</button>)}
             </div>
-            <button onClick={discover} disabled={dBusy} style={{background:T.blue,color:"#fff",border:"none",borderRadius:16,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer",opacity:dBusy?0.6:1}}>{dBusy?"Searching...":"\ud83d\udd0d Search"}</button>
+            <button onClick={discover} disabled={dBusy} style={{background:T.blue,color:"#fff",border:"none",borderRadius:16,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer",opacity:dBusy?0.6:1}}>{dBusy?"Searching...":"\ud83d\udd0d Search · ~$0.02 · 1/day"}</button>
           </div>
         </div>
         {dResults&&dResults.length>0&&(
@@ -799,7 +881,7 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
       <div style={{...card,marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           <div style={{fontSize:14,fontWeight:700}}>{"\u2605"} Preferred suppliers <span style={{fontSize:12,color:T.muted,fontWeight:400}}>({Object.values(data.suppliers).filter(sp=>sp.preferred).length})</span></div>
-          <button onClick={refreshPreferred} disabled={refBusy} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer",opacity:refBusy?0.6:1}}>{refBusy?"Refreshing...":"\u21bb Refresh preferred prices"}</button>
+          <button onClick={refreshPreferred} disabled={refBusy} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer",opacity:refBusy?0.6:1}}>{refBusy?"Refreshing...":`\u21bb Refresh prices · ~$${(0.03*Math.max(1,Object.values(data.suppliers).filter(sp=>sp.preferred).length)).toFixed(2)} · 1/day`}</button>
         </div>
         <div style={{fontSize:11,color:T.muted,marginTop:6}}>Star suppliers in the table below. Refresh runs one live search per preferred supplier \u2014 results are advisory only and never write into your price history.</div>
         {refResults&&(
@@ -912,33 +994,47 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
 function MultiLine({series,T,money=true}){
   const pts=series[0]?.points||[];
   if(!pts.length)return <div style={{padding:"20px 0",color:T.muted,fontSize:13,textAlign:"center"}}>Not enough data yet — enter more months of sales.</div>;
+  const FC=pts.length>=3?2:0; // forecast points, unlocked at 3 actuals
+  const proj=(arr)=>{ // straight-line from last 3 points
+    if(FC===0)return [];
+    const last=arr.slice(-3).map(p=>p.y);
+    const slope=(last[2]-last[0])/2;
+    return [1,2].map(k=>Math.max(0,last[2]+slope*k));
+  };
   const W=560,H=190,pl=54,pr=14,pt=14,pb=34,iw=W-pl-pr,ih=H-pt-pb;
-  const all=series.flatMap(sr=>sr.points.map(p=>p.y));
+  const total=pts.length+FC;
+  const all=series.flatMap(sr=>[...sr.points.map(p=>p.y),...proj(sr.points)]);
   const mx=Math.max(...all)*1.08||1,mn=0;
-  const tx=i=>pl+(pts.length>1?(i/(pts.length-1))*iw:iw/2);
+  const tx=i=>pl+(total>1?(i/(total-1))*iw:iw/2);
   const ty=v=>pt+ih-((v-mn)/(mx-mn))*ih;
   const fv=v=>money?(v>=1000?`$${(v/1000).toFixed(0)}k`:`$${v.toFixed(0)}`):v>=1000?`${(v/1000).toFixed(1)}k`:`${Math.round(v)}`;
   return(
     <div>
       <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{maxWidth:"100%"}}>
         {[mn,(mn+mx)/2,mx].map((t,i)=><g key={i}><line x1={pl} y1={ty(t)} x2={W-pr} y2={ty(t)} stroke={T.border} strokeWidth="1" strokeDasharray="4 4"/><text x={pl-6} y={ty(t)+4} textAnchor="end" fontSize="10" fill={T.muted}>{fv(t)}</text></g>)}
-        {series.map((sr,si)=>(
+        {FC>0&&<rect x={tx(pts.length-1)} y={pt-4} width={tx(total-1)-tx(pts.length-1)+8} height={ih+8} fill={T.border} opacity="0.18" rx="6"/>}
+        {series.map((sr,si)=>{
+          const fp=proj(sr.points);
+          return(
           <g key={si}>
             <polyline points={sr.points.map((p,i)=>`${tx(i)},${ty(p.y)}`).join(" ")} fill="none" stroke={sr.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            {fp.length>0&&<polyline points={[`${tx(pts.length-1)},${ty(sr.points[pts.length-1].y)}`,...fp.map((v,k)=>`${tx(pts.length+k)},${ty(v)}`)].join(" ")} fill="none" stroke={sr.color} strokeWidth="2.5" strokeDasharray="6 5" opacity="0.6" strokeLinecap="round"/>}
             {sr.points.map((p,i)=><circle key={i} cx={tx(i)} cy={ty(p.y)} r="3.5" fill={sr.color}/>)}
           </g>
-        ))}
+        );})}
         {pts.map((p,i)=><text key={i} x={tx(i)} y={H-pb+18} textAnchor="middle" fontSize="9" fill={T.muted}>{p.label}</text>)}
+        {FC>0&&<text x={(tx(pts.length-1)+tx(total-1))/2} y={H-pb+18} textAnchor="middle" fontSize="8" fill={T.muted}>FORECAST</text>}
       </svg>
-      <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:4}}>
+      <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:4,alignItems:"center"}}>
         {series.map((sr,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:T.slate}}><div style={{width:10,height:10,borderRadius:3,background:sr.color}}/>{sr.label}</div>)}
+        <div style={{fontSize:11,color:T.muted}}>{FC>0?"Dashed = straight-line forecast from your actuals":"Forecast unlocks at 3 periods of data"}</div>
       </div>
     </div>
   );
 }
 
 // ─── SALES & P&L ─────────────────────────────────────────────────────────────
-function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bFCP,bMargin,months,onSaveSales}){
+function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bCostAtApp,bFCP,bMargin,months,onSaveSales}){
   const [showForm,setShowForm]=useState(false);
   const [fMonth,setFMonth]=useState("");
   const [fL1,setFL1]=useState("");
@@ -1165,10 +1261,19 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
       })()}
 
       <div style={card}>
-        <h3 style={{margin:"0 0 16px",fontSize:isMobile?16:20,fontWeight:800}}>Menu Cost Analysis <span style={{fontSize:12,color:T.muted,fontWeight:400}}>· Medium size bowls</span></h3>
+        {(()=>{window.__salesPeriodMonth=(()=>{
+          const MNz=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+          const now=new Date();
+          if(period==="month"){const d=new Date(now.getFullYear(),now.getMonth()-off);return `${MNz[d.getMonth()]} ${d.getFullYear()}`;}
+          if(period==="quarter"){const qs=Math.floor(now.getMonth()/3)*3;const d=new Date(now.getFullYear(),qs-off*3+2);return `${MNz[d.getMonth()]} ${d.getFullYear()}`;}
+          return `Dec ${now.getFullYear()-off}`;
+        })();return null;})()}
+        <h3 style={{margin:"0 0 4px",fontSize:isMobile?16:20,fontWeight:800}}>Menu Cost Analysis <span style={{fontSize:12,color:T.muted,fontWeight:400}}>· {window.__salesPeriodMonth} prices</span></h3>
+        <p style={{margin:"0 0 14px",fontSize:isMobile?12:13,color:T.muted,lineHeight:1.6}}>Each bowl costed at the prices you were actually paying in this period — the margin that month genuinely made. Flip periods with the arrows above to watch costs creep or ease. Today's costs and what-if testing live on the Menu page.</p>
         <div style={{display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",columnGap:32}}>
           {Object.entries(data.menu).map(([item,md])=>{
-            const cost=bCost(item),fp=bFCP(item),mg=bMargin(item);
+            const cost=bCostAtApp(item,window.__salesPeriodMonth||"");
+            const fp=md.price?(cost/md.price)*100:0,mg=md.price?((md.price-cost)/md.price)*100:0;
             return(
               <div key={item} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 0",borderBottom:`1px solid ${T.border}`}}>
                 <div style={{flex:1}}>
@@ -1278,6 +1383,17 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,loadingInsigh
             <div style={{fontSize:10,color:"rgba(255,255,255,0.5)",textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:8}}>✦ Generated {new Date().toLocaleDateString("en-CA",{day:"numeric",month:"short",year:"numeric"})} · based on {latMon} data</div>
             <div style={{fontSize:isMobile?18:24,fontWeight:800,color:T.bg,lineHeight:1.3}}>{aiInsights.headline}</div>
           </div>
+          {aiInsights.focus?.bowl&&(
+            <div style={{background:T.card,border:`1px solid ${T.border}`,borderLeft:`4px solid ${T.teal}`,borderRadius:isMobile?12:16,padding:isMobile?"16px":"18px 22px",marginBottom:16}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+                <span style={{fontSize:20}}>🎯</span>
+                <span style={{fontSize:isMobile?14:16,fontWeight:800}}>This month's focus: push the {aiInsights.focus.bowl}</span>
+                <Tag c={T.slate} bg={T.bg} sm>ADVISORY</Tag>
+              </div>
+              <div style={{fontSize:isMobile?13:14,color:T.slate,lineHeight:1.65,marginBottom:6}}>{aiInsights.focus.reason}</div>
+              {aiInsights.focus.contingency&&<div style={{fontSize:12,color:T.muted}}>{aiInsights.focus.contingency}</div>}
+            </div>
+          )}
           <div style={card}>
             <div style={{fontSize:isMobile?15:17,fontWeight:700,marginBottom:4}}>Ask a question about your data</div>
             <div style={{fontSize:13,color:T.muted,marginBottom:14}}>e.g. "Which bowl has the worst margin?" or "If tuna goes up 10% what happens?"</div>
@@ -1350,18 +1466,20 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,loadingInsigh
 }
 
 // ─── MENU / RECIPE EDITOR ────────────────────────────────────────────────────
-function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks}){
+function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,market}){
   const [sub,setSub]=useState(selIng?"ingredients":"recipes");
   const [histMonth,setHistMonth]=useState("live");
   const MN2=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const histOptions=(()=>{const o=[];const now=new Date();for(let i=1;i<=12;i++){const d=new Date(now.getFullYear(),now.getMonth()-i);o.push(`${MN2[d.getMonth()]} ${d.getFullYear()}`);}return o;})();
   const gILAt=(n,monthKey)=>{
     const e=data.ingredients[n];if(!e||!e.length)return 0;
-    if(monthKey==="live")return e[e.length-1].price;
+    const norm=(p,u)=>{const m=/^(\d+(?:\.\d+)?)\s*(kg|g|l|ml|lb|oz)$/i.exec((u||"").trim());if(!m)return p;const n=parseFloat(m[1]);return n>0?p/n:p;};
+    if(monthKey==="live"){const last=e[e.length-1];return norm(last.price,last.unit);}
     const mi=MN2.indexOf(monthKey.split(" ")[0]);const y=parseInt(monthKey.split(" ")[1]);
     const cutoff=new Date(y,mi+1,0).getTime();
     const valid=e.filter(x=>new Date(x.date).getTime()<=cutoff);
-    return valid.length?valid[valid.length-1].price:0;
+    if(!valid.length)return 0;
+    const last=valid[valid.length-1];return norm(last.price,last.unit);
   };
   const bCostAt=(item,monthKey)=>{const m=data.menu[item];if(!m)return 0;return Object.entries(m.ing).reduce((sum,[i,q])=>sum+gILAt(i,monthKey)*q,0);};
   const [sel,setSel]=useState(null);
@@ -1370,7 +1488,7 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload,selIng,set
   const [newBowl,setNewBowl]=useState("");
   const [saving,setSaving]=useState(false);
   const inp={background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 10px",color:T.navy,fontSize:14,fontFamily:"inherit",outline:"none"};
-  const gIL=n=>{const e=data.ingredients[n];return e&&e.length?e[e.length-1].price:0;};
+  const gIL=n=>{const e=data.ingredients[n];if(!e||!e.length)return 0;const last=e[e.length-1];const m=/^(\d+(?:\.\d+)?)\s*(kg|g|l|ml|lb|oz)$/i.exec((last.unit||"").trim());if(!m)return last.price;const nn=parseFloat(m[1]);return nn>0?last.price/nn:last.price;};
   const draftCost=d=>Object.entries(d.ing).reduce((s,[i,q])=>s+gIL(i)*(parseFloat(q)||0),0);
   const open=(name)=>{const m=data.menu[name];setSel(name);setDraft({price:m.price,ing:{...m.ing}});};
   const save=async()=>{
@@ -1405,16 +1523,16 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload,selIng,set
           <button key={id} onClick={()=>setSub(id)} style={{background:sub===id?T.blue:"transparent",color:sub===id?"#fff":T.slate,border:"none",borderRadius:16,padding:"7px 18px",fontSize:13,fontWeight:sub===id?700:500,cursor:"pointer"}}>{lb}</button>
         ))}
       </div>
-      {sub==="ingredients"&&<Ingredients {...{T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,say,reload}}/>}
+      {sub==="ingredients"&&<Ingredients {...{T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,say,reload,market}}/>}
       {sub==="recipes"&&(<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,flexWrap:"wrap",gap:8}}>
-        <h2 style={{margin:0,fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Menu & Recipes</h2>
+        <div style={{fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6,maxWidth:640}}>Your bowls, costed live at the latest prices you have recorded. Tap any bowl to adjust portions or price and watch the margin move before you commit. Costs here update the moment a receipt lands.</div>
         <div style={{display:"flex",gap:8}}>
           <input value={newBowl} onChange={e=>setNewBowl(e.target.value)} onKeyDown={e=>e.key==="Enter"&&createBowl()} placeholder="New bowl name..." style={{...inp,width:160}}/>
           <button onClick={createBowl} disabled={!newBowl.trim()} style={{background:T.blue,color:"#fff",border:"none",borderRadius:20,padding:"8px 16px",fontSize:13,fontWeight:700,cursor:"pointer",opacity:newBowl.trim()?1:0.5,whiteSpace:"nowrap"}}>+ Add bowl</button>
         </div>
       </div>
-      <p style={{margin:"0 0 12px",fontSize:isMobile?13:14,color:T.muted}}>Tap a bowl to edit portions and pricing. Costs recalculate live as you type — use it to test what-if changes before committing.</p>
+
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16,flexWrap:"wrap"}}>
         <span style={{fontSize:12,color:T.muted,fontWeight:700}}>Cost basis:</span>
         <select value={histMonth} onChange={e=>setHistMonth(e.target.value)} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:16,padding:"7px 14px",color:T.navy,fontSize:13,fontWeight:600,outline:"none"}}>
@@ -1460,7 +1578,7 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload,selIng,set
                     <div key={ing} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${T.border}`}}>
                       <div style={{flex:1,fontSize:14,fontWeight:600}}>{ing}</div>
                       <input type="number" inputMode="decimal" step="0.01" value={qty} onChange={e=>setDraft(p=>({...p,ing:{...p.ing,[ing]:e.target.value}}))} style={{...inp,width:80,textAlign:"right"}}/>
-                      <div style={{fontSize:12,color:T.muted,width:44}}>{data.ingredients[ing]?.[0]?.unit||"unit"}</div>
+                      <div style={{fontSize:12,color:T.muted,width:44}}>{(()=>{const u=data.ingredients[ing]?.[0]?.unit||"unit";const m=/^(\d+(?:\.\d+)?)\s*(kg|g|l|ml|lb|oz)$/i.exec(u.trim());return m?m[2].toLowerCase():u;})()}</div>
                       <div style={{fontSize:13,fontWeight:600,color:T.slate,width:64,textAlign:"right"}}>${fmt(gIL(ing)*(parseFloat(qty)||0))}</div>
                       <button onClick={()=>setDraft(p=>{const n={...p.ing};delete n[ing];return{...p,ing:n};})} style={{background:"none",border:"none",color:T.coral,fontSize:16,cursor:"pointer",padding:"2px 6px"}}>×</button>
                     </div>

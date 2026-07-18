@@ -134,3 +134,36 @@ export async function saveAlert(ingredient, threshold) {
     if (error) throw error;
   }
 }
+
+// ─── Market checks (advisory history, item 10) ──────────────────────────────
+export async function saveMarketChecks(rows) {
+  if (!rows.length) return;
+  const { error } = await supabase.from("market_checks").insert(rows);
+  if (error) throw error;
+}
+export async function loadMarketChecks() {
+  const { data, error } = await supabase.from("market_checks").select("*").order("checked_at", { ascending: true }).limit(400);
+  if (error) return {};
+  const byIng = {};
+  (data || []).forEach(r => {
+    if (!byIng[r.ingredient]) byIng[r.ingredient] = [];
+    byIng[r.ingredient].push({ price: Number(r.price), unit: r.unit, source: r.source, url: r.url, at: r.checked_at });
+  });
+  return byIng;
+}
+
+// ─── Daily usage caps (item 11): one row per action per day, shared org-wide ─
+export async function canRunToday(action) {
+  const today = new Date().toISOString().slice(0, 10);
+  const { data } = await supabase.from("usage_log").select("*").eq("action", action).eq("day", today).limit(1);
+  return { allowed: !(data && data.length), last: data && data[0] ? data[0] : null };
+}
+export async function recordRun(action, byEmail) {
+  const today = new Date().toISOString().slice(0, 10);
+  const { error } = await supabase.from("usage_log").insert({ action, day: today, by_email: byEmail || "" });
+  if (error && !error.message?.includes("duplicate")) throw error;
+}
+export async function lastRun(action) {
+  const { data } = await supabase.from("usage_log").select("*").eq("action", action).order("day", { ascending: false }).limit(1);
+  return data && data[0] ? data[0] : null;
+}
