@@ -2,20 +2,20 @@
 import { supabase } from "./supabase.js";
 import { DATA } from "./data.jsx";
 
-// Load everything and return it in the app's data shape
 export async function loadAll() {
-  const [prices, sups, recs, menu, sales] = await Promise.all([
+  const [prices, sups, recs, menu, sales, alerts] = await Promise.all([
     supabase.from("ingredient_prices").select("*").order("date", { ascending: true }),
     supabase.from("suppliers").select("*"),
-    supabase.from("receipts").select("fingerprint"),
+    supabase.from("receipts").select("*"),
     supabase.from("menu_items").select("*"),
     supabase.from("sales").select("*"),
+    supabase.from("alerts").select("*"),
   ]);
 
   const ingredients = {};
   (prices.data || []).forEach(r => {
     if (!ingredients[r.ingredient]) ingredients[r.ingredient] = [];
-    ingredients[r.ingredient].push({ date: r.date, price: Number(r.price), unit: r.unit, supplier: r.supplier });
+    ingredients[r.ingredient].push({ id: r.id, date: r.date, price: Number(r.price), unit: r.unit, supplier: r.supplier });
   });
 
   const suppliers = {};
@@ -29,50 +29,43 @@ export async function loadAll() {
   const salesObj = {};
   (sales.data || []).forEach(s => { salesObj[s.month] = { loc1: Number(s.loc1), loc2: Number(s.loc2), mix: s.mix || {} }; });
 
+  const alertsObj = {};
+  (alerts.data || []).forEach(a => { alertsObj[a.ingredient] = Number(a.threshold); });
+
   return {
-    ingredients,
-    suppliers,
-    menu: menuObj,
-    sales: salesObj,
+    ingredients, suppliers, menu: menuObj, sales: salesObj,
     receipts: (recs.data || []).map(r => r.fingerprint),
     locations: DATA.locations,
-    alerts: DATA.alerts,
+    alerts: alertsObj,
   };
 }
 
-// First run: if the database is empty, seed it with the starting data
 export async function seedIfEmpty() {
   const { count } = await supabase.from("menu_items").select("*", { count: "exact", head: true });
-  if (count && count > 0) return false; // already seeded
+  if (count && count > 0) return false;
 
-  const supRows = Object.entries(DATA.suppliers).map(([name, s]) => ({
+  await supabase.from("suppliers").upsert(Object.entries(DATA.suppliers).map(([name, s]) => ({
     name, type: s.type || "retail", contact: s.contact || "", phone: s.phone || "",
     email: s.email || "", terms: s.terms || "", delivery: s.delivery || "", notes: s.notes || "",
-  }));
-  await supabase.from("suppliers").upsert(supRows);
-
-  const menuRows = Object.entries(DATA.menu).map(([name, m]) => ({ name, price: m.price, ingredients: m.ing }));
-  await supabase.from("menu_items").upsert(menuRows);
-
-  const salesRows = Object.entries(DATA.sales).map(([month, s]) => ({ month, loc1: s.loc1, loc2: s.loc2, mix: s.mix || {} }));
-  await supabase.from("sales").upsert(salesRows);
+  })));
+  await supabase.from("menu_items").upsert(Object.entries(DATA.menu).map(([name, m]) => ({ name, price: m.price, ingredients: m.ing })));
+  await supabase.from("sales").upsert(Object.entries(DATA.sales).map(([month, s]) => ({ month, loc1: s.loc1, loc2: s.loc2, mix: s.mix || {} })));
+  await supabase.from("alerts").upsert(Object.entries(DATA.alerts).map(([ingredient, threshold]) => ({ ingredient, threshold })));
 
   const priceRows = [];
   Object.entries(DATA.ingredients).forEach(([ingredient, entries]) => {
     entries.forEach(e => priceRows.push({ ingredient, price: e.price, unit: e.unit, supplier: e.supplier, date: e.date }));
   });
   await supabase.from("ingredient_prices").insert(priceRows);
-
   return true;
 }
 
-// Save a scanned receipt: the receipt record plus each ingredient price line
-export async function saveReceipt(result) {
+export async function saveReceipt(result, location = "all") {
   const fingerprint = `${result.supplier}|${result.date}|${result.items.length}`;
   const { error: rErr } = await supabase.from("receipts").insert({
     fingerprint, supplier: result.supplier || "Unknown",
     date: result.date || new Date().toISOString().slice(0, 10),
-    item_count: result.items.length,
+    item_count: result.items.length, location,
   });
   if (rErr && !rErr.message?.includes("duplicate")) throw rErr;
 
@@ -83,15 +76,59 @@ export async function saveReceipt(result) {
   const { error: pErr } = await supabase.from("ingredient_prices").insert(rows);
   if (pErr) throw pErr;
 
-  // Make sure the supplier exists
   await supabase.from("suppliers").upsert(
     { name: result.supplier || "Unknown", type: "retail", notes: "Added from receipt scan." },
     { onConflict: "name", ignoreDuplicates: true }
   );
 }
 
-// Save or update a month's sales figures
 export async function saveSales(month, loc1, loc2, mix = {}) {
   const { error } = await supabase.from("sales").upsert({ month, loc1, loc2, mix });
   if (error) throw error;
+}
+
+// ─── Manual entry, edits & deletes ──────────────────────────────────────────
+export async function addPrice(ingredient, price, unit, supplier, date) {
+  const { error } = await supabase.from("ingredient_prices").insert({ ingredient, price, unit, supplier, date });
+  if (error) throw error;
+  await supabase.from("suppliers").upsert({ name: supplier, type: "retail", notes: "Added manually." }, { onConflict: "name", ignoreDuplicates: true });
+}
+
+export async function deletePriceEntry(id) {
+  const { error } = await supabase.from("ingredient_prices").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteIngredient(name) {
+  await supabase.from("ingredient_prices").delete().eq("ingredient", name);
+  await supabase.from("alerts").delete().eq("ingredient", name);
+}
+
+export async function deleteSupplier(name) {
+  const { error } = await supabase.from("suppliers").delete().eq("name", name);
+  if (error) throw error;
+}
+
+export async function upsertSupplier(name, fields) {
+  const { error } = await supabase.from("suppliers").upsert({ name, ...fields });
+  if (error) throw error;
+}
+
+export async function saveMenuItem(name, price, ingredients) {
+  const { error } = await supabase.from("menu_items").upsert({ name, price, ingredients });
+  if (error) throw error;
+}
+
+export async function deleteMenuItem(name) {
+  const { error } = await supabase.from("menu_items").delete().eq("name", name);
+  if (error) throw error;
+}
+
+export async function saveAlert(ingredient, threshold) {
+  if (threshold === null || threshold === "" || isNaN(threshold)) {
+    await supabase.from("alerts").delete().eq("ingredient", ingredient);
+  } else {
+    const { error } = await supabase.from("alerts").upsert({ ingredient, threshold });
+    if (error) throw error;
+  }
 }

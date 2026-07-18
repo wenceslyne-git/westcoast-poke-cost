@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { LIGHT, DARK, DATA, gL, gPct, fmt, fmtK, useBreakpoint, Spark, PriceChart, WCP_LOGO } from "./data.jsx";
 import { supabase, isOwner } from "./supabase.js";
-import { loadAll, seedIfEmpty, saveReceipt, saveSales } from "./db.js";
+import { loadAll, seedIfEmpty, saveReceipt, saveSales, addPrice, deletePriceEntry, deleteIngredient, deleteSupplier, upsertSupplier, saveMenuItem, deleteMenuItem, saveAlert } from "./db.js";
 import Login from "./Login.jsx";
 
 const API_HEADERS = () => ({
@@ -56,6 +56,8 @@ export default function App(){
   const [checks,setChecks]=useState({});
   const [chkIng,setChkIng]=useState(null);
   const [chkAll,setChkAll]=useState(false);
+  const [scanLoc,setScanLoc]=useState("all");
+  const reload=async()=>{try{const d=await loadAll();setData(d);}catch(e){console.error(e);}};
   const [aiInsights,setAiInsights]=useState(null);
   const [loadingInsights,setLoadingInsights]=useState(false);
   const [insightChat,setInsightChat]=useState([]);
@@ -153,7 +155,8 @@ export default function App(){
     if(!u.suppliers[result.supplier])u.suppliers[result.supplier]={type:"retail",notes:"Added from receipt scan."};
     setData(u);setScanRes(null);setImg(null);setModal(null);setTab("dashboard");
     try{
-      await saveReceipt(result);
+      await saveReceipt(result,scanLoc);
+      await reload();
       say(`Saved ${saved} item${saved!==1?"s":""} to database`);
     }catch(e){
       console.error(e);
@@ -221,7 +224,7 @@ export default function App(){
   const card={background:T.card,border:`1px solid ${T.border}`,borderRadius:isMobile?12:16,padding:isMobile?"16px":"22px 24px"};
   const Tag=({c,bg,children,sm})=><span style={{background:bg||T.blueL,color:c||T.blue,border:`1px solid ${(c||T.blue)}22`,padding:sm?"2px 8px":"3px 10px",borderRadius:20,fontSize:sm?10:12,fontWeight:700,whiteSpace:"nowrap"}}>{children}</span>;
 
-  const TABS=[{id:"dashboard",label:"Dashboard"},{id:"ingredients",label:"Ingredients"},{id:"suppliers",label:"Suppliers"},{id:"sales",label:"Sales & P&L"},{id:"insights",label:"✦ Insights"}];
+  const TABS=[{id:"dashboard",label:"Dashboard"},{id:"ingredients",label:"Ingredients"},{id:"menu",label:"Menu"},{id:"suppliers",label:"Suppliers"},{id:"sales",label:"Sales & P&L"},{id:"insights",label:"✦ Insights"}];
 
   // ── auth gate ──
   if(session===undefined) return <div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted,fontFamily:"sans-serif"}}>Loading...</div>;
@@ -286,8 +289,9 @@ export default function App(){
 
       <div style={{padding:isMobile?"16px":"28px 32px",maxWidth:MAXW,margin:"0 auto"}}>
         {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,cogs,gp,fcp,revDelta,data,movers,actions,cRev,cCOGS,setSelIng,setTab}}/>}
-        {tab==="ingredients"&&<Ingredients {...{T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks}}/>}
-        {tab==="suppliers"&&<Suppliers {...{T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup}}/>}
+        {tab==="ingredients"&&<Ingredients {...{T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,say,reload}}/>}
+        {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,say,reload}}/>}
+        {tab==="suppliers"&&<Suppliers {...{T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,reload}}/>}
         {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bFCP,bMargin,months,onSaveSales:async(month,l1,l2)=>{
           const u=JSON.parse(JSON.stringify(data));
           const existing=u.sales[month]||{mix:{}};
@@ -296,7 +300,7 @@ export default function App(){
           try{await saveSales(month,l1,l2,existing.mix||{});say(`${month} sales saved`);}
           catch(e){console.error(e);say("Save failed — try again",true);}
         }}}/>}
-        {tab==="scan"&&<Scan {...{T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okScan,onFile,fileRef}}/>}
+        {tab==="scan"&&<Scan {...{T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okScan,onFile,fileRef,scanLoc,setScanLoc,locations:data.locations}}/>}
         {tab==="insights"&&<Insights {...{T,isMobile,isDesktop,card,Tag,latMon,aiInsights,loadingInsights,generateInsights,insightChat,chatInput,setChatInput,chatLoading,sendChat}}/>}
       </div>
 
@@ -412,13 +416,70 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
 const fmtK2 = n => typeof n==="number"&&n>=1000?`$${(n/1000).toFixed(1)}k`:typeof n==="number"?`$${n.toLocaleString("en-CA",{minimumFractionDigits:2,maximumFractionDigits:2})}`:n;
 
 // ─── INGREDIENTS ─────────────────────────────────────────────────────────────
-function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks}){
+function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,say,reload}){
+  const [showAdd,setShowAdd]=useState(false);
+  const [mIng,setMIng]=useState("");const [mPrice,setMPrice]=useState("");const [mUnit,setMUnit]=useState("lb");const [mSup,setMSup]=useState("");const [mDate,setMDate]=useState(new Date().toISOString().slice(0,10));
+  const [mSaving,setMSaving]=useState(false);
+  const [thrEdit,setThrEdit]=useState("");
+  const inp={background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px",color:T.navy,fontSize:14,fontFamily:"inherit",outline:"none",width:"100%"};
+  const submitManual=async()=>{
+    if(!mIng.trim()||!mPrice)return;
+    setMSaving(true);
+    try{
+      await addPrice(mIng.trim(),parseFloat(mPrice),mUnit,mSup.trim()||"Manual entry",mDate);
+      await reload();
+      say("Price added");
+      setShowAdd(false);setMIng("");setMPrice("");setMSup("");
+    }catch(e){console.error(e);say("Save failed",true);}
+    setMSaving(false);
+  };
+  const delEntry=async(id,name)=>{
+    if(!id){say("Refresh before deleting this entry",true);return;}
+    if(!window.confirm(`Delete this price entry for ${name}?`))return;
+    try{await deletePriceEntry(id);await reload();say("Entry deleted");}
+    catch(e){say("Delete failed",true);}
+  };
+  const delIng=async(name)=>{
+    if(!window.confirm(`Delete "${name}" and ALL its price history? This cannot be undone.`))return;
+    try{await deleteIngredient(name);await reload();setSelIng(null);say(`${name} deleted`);}
+    catch(e){say("Delete failed",true);}
+  };
+  const saveThr=async(name)=>{
+    const v=thrEdit===""?null:parseFloat(thrEdit);
+    try{await saveAlert(name,v);await reload();say(v===null?"Alert removed":`Alert set at $${v}`);}
+    catch(e){say("Save failed",true);}
+  };
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,flexWrap:"wrap",gap:8}}>
         <h2 style={{margin:0,fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Ingredients <span style={{fontSize:isMobile?14:16,color:T.muted,fontWeight:400}}>({Object.keys(data.ingredients).length})</span></h2>
-        <button onClick={doAllChecks} disabled={chkAll} style={{background:T.tealL,border:`1px solid ${T.teal}44`,color:T.teal,padding:"8px 16px",borderRadius:20,fontSize:13,cursor:chkAll?"not-allowed":"pointer",fontWeight:700,opacity:chkAll?0.6:1}}>{chkAll?"🔍 Checking all...":"🔍 Check all prices"}</button>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button onClick={()=>setShowAdd(v=>!v)} style={{background:showAdd?"transparent":T.blue,color:showAdd?T.muted:"#fff",border:showAdd?`1px solid ${T.border}`:"none",padding:"8px 16px",borderRadius:20,fontSize:13,cursor:"pointer",fontWeight:700}}>{showAdd?"Cancel":"+ Add price"}</button>
+          <button onClick={doAllChecks} disabled={chkAll} style={{background:T.tealL,border:`1px solid ${T.teal}44`,color:T.teal,padding:"8px 16px",borderRadius:20,fontSize:13,cursor:chkAll?"not-allowed":"pointer",fontWeight:700,opacity:chkAll?0.6:1}}>{chkAll?"🔍 Checking...":"🔍 Check all prices"}</button>
+        </div>
       </div>
+
+      {showAdd&&(
+        <div style={{...card,marginBottom:14,borderColor:T.blue}}>
+          <div style={{fontSize:15,fontWeight:700,marginBottom:12}}>Add a price manually</div>
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"2fr 1fr 1fr 2fr 1.4fr auto",gap:8,alignItems:"end"}}>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>INGREDIENT</div><input list="ing-list" value={mIng} onChange={e=>setMIng(e.target.value)} placeholder="e.g. Ahi Tuna" style={inp}/><datalist id="ing-list">{Object.keys(data.ingredients).map(i=><option key={i} value={i}/>)}</datalist></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>PRICE $</div><input type="number" inputMode="decimal" value={mPrice} onChange={e=>setMPrice(e.target.value)} placeholder="0.00" style={inp}/></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>UNIT</div><select value={mUnit} onChange={e=>setMUnit(e.target.value)} style={inp}>{["lb","kg","each","bottle","case","25kg","10kg","L","bag"].map(u=><option key={u}>{u}</option>)}</select></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>SUPPLIER</div><input list="sup-list" value={mSup} onChange={e=>setMSup(e.target.value)} placeholder="e.g. Costco" style={inp}/><datalist id="sup-list">{Object.keys(data.suppliers).map(s=><option key={s} value={s}/>)}</datalist></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>DATE</div><input type="date" value={mDate} onChange={e=>setMDate(e.target.value)} style={inp}/></div>
+            <button onClick={submitManual} disabled={mSaving||!mIng.trim()||!mPrice} style={{background:T.teal,color:"#fff",border:"none",borderRadius:10,padding:"11px 20px",fontSize:14,fontWeight:800,cursor:"pointer",opacity:mSaving||!mIng.trim()||!mPrice?0.6:1,whiteSpace:"nowrap"}}>{mSaving?"Saving...":"Save"}</button>
+          </div>
+        </div>
+      )}
+
+      {Object.keys(data.ingredients).length===0&&(
+        <div style={{...card,textAlign:"center",padding:"48px 24px",color:T.muted}}>
+          <div style={{fontSize:44,marginBottom:12}}>🥑</div>
+          <div style={{fontSize:16,fontWeight:700,color:T.slate,marginBottom:6}}>No ingredients yet</div>
+          <div style={{fontSize:14}}>Scan your first receipt or add a price manually to get started.</div>
+        </div>
+      )}
       <div style={{display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",gap:10}}>
         {Object.entries(data.ingredients).map(([name,entries])=>{
           const lat=gL(entries),ch=gPct(entries),isSel=selIng===name,thr=data.alerts[name],ov=thr&&lat>thr,pc=checks[name];
@@ -445,10 +506,18 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
                   <PriceChart data={entries} T={T}/>
                   <div style={{marginTop:12}}>
                     {entries.map((e,i)=>(
-                      <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:13,color:T.muted,padding:"5px 0",borderBottom:`1px solid ${T.border}`}}>
-                        <span>{e.date}</span><span>{e.supplier}</span><span style={{color:T.navy,fontWeight:600}}>${fmt(e.price)}/{e.unit}</span>
+                      <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,fontSize:13,color:T.muted,padding:"5px 0",borderBottom:`1px solid ${T.border}`}}>
+                        <span>{e.date}</span><span>{e.supplier}</span>
+                        <span style={{color:T.navy,fontWeight:600,marginLeft:"auto"}}>${fmt(e.price)}/{e.unit}</span>
+                        <button onClick={()=>delEntry(e.id,name)} title="Delete entry" style={{background:"none",border:"none",color:T.coral,fontSize:15,cursor:"pointer",padding:"2px 6px",lineHeight:1}}>×</button>
                       </div>
                     ))}
+                  </div>
+                  <div style={{display:"flex",gap:8,alignItems:"center",marginTop:14,flexWrap:"wrap"}}>
+                    <span style={{fontSize:12,color:T.muted,fontWeight:700}}>Price alert above $</span>
+                    <input type="number" inputMode="decimal" defaultValue={thr||""} onChange={e=>setThrEdit(e.target.value)} placeholder="none" style={{width:90,background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"7px 10px",color:T.navy,fontSize:13,outline:"none"}}/>
+                    <button onClick={()=>saveThr(name)} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Set alert</button>
+                    <button onClick={()=>delIng(name)} style={{marginLeft:"auto",background:"none",border:`1px solid ${T.coral}55`,borderRadius:16,color:T.coral,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Delete ingredient</button>
                   </div>
                   <div style={{marginTop:16}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -500,7 +569,20 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
 }
 
 // ─── SUPPLIERS ───────────────────────────────────────────────────────────────
-function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup}){
+function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,reload}){
+  const [editSup,setEditSup]=useState(null);
+  const [ef,setEf]=useState({});
+  const inp={background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"9px 12px",color:T.navy,fontSize:13,fontFamily:"inherit",outline:"none",width:"100%"};
+  const startEdit=(name,s)=>{setEditSup(name);setEf({type:s.type||"retail",contact:s.contact||"",phone:s.phone||"",email:s.email||"",terms:s.terms||"",delivery:s.delivery||"",notes:s.notes||""});};
+  const saveEdit=async()=>{
+    try{await upsertSupplier(editSup,ef);await reload();say("Supplier updated");setEditSup(null);}
+    catch(e){say("Save failed",true);}
+  };
+  const delSup=async(name)=>{
+    if(!window.confirm(`Delete supplier "${name}"? Price history entries keep the name but the supplier record is removed.`))return;
+    try{await deleteSupplier(name);await reload();setSelSup(null);say(`${name} deleted`);}
+    catch(e){say("Delete failed",true);}
+  };
   return(
     <div>
       <h2 style={{margin:"0 0 20px",fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Suppliers</h2>
@@ -524,7 +606,23 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup}){
                       {ingList.length>0&&<Tag c={T.blue} bg={T.blueL} sm>{ingList.length} ingredient{ingList.length>1?"s":""}</Tag>}
                     </div>
                     {isSel&&(
-                      <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
+                      <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${T.border}`}} onClick={e=>e.stopPropagation()}>
+                        {editSup===name?(
+                          <div>
+                            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr",gap:8,marginBottom:10}}>
+                              {[["contact","Contact"],["phone","Phone"],["email","Email"],["terms","Terms"],["delivery","Delivery days"]].map(([k,lb])=>(
+                                <div key={k}><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>{lb.toUpperCase()}</div><input value={ef[k]} onChange={e=>setEf(p=>({...p,[k]:e.target.value}))} style={inp}/></div>
+                              ))}
+                              <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>TYPE</div><select value={ef.type} onChange={e=>setEf(p=>({...p,type:e.target.value}))} style={inp}><option value="trade">Trade account</option><option value="retail">Retail (cash)</option></select></div>
+                            </div>
+                            <div style={{marginBottom:10}}><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>NOTES</div><input value={ef.notes} onChange={e=>setEf(p=>({...p,notes:e.target.value}))} style={inp}/></div>
+                            <div style={{display:"flex",gap:8}}>
+                              <button onClick={saveEdit} style={{background:T.teal,color:"#fff",border:"none",borderRadius:16,padding:"8px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Save</button>
+                              <button onClick={()=>setEditSup(null)} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:16,color:T.muted,padding:"8px 18px",fontSize:13,cursor:"pointer"}}>Cancel</button>
+                            </div>
+                          </div>
+                        ):(
+                          <>
                         {st==="trade"&&(
                           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
                             {[["Terms",s.terms],["Delivery",s.delivery],["Contact",s.contact],["Phone",s.phone],["Email",s.email]].filter(([,v])=>v).map(([k,v])=>(
@@ -534,7 +632,7 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup}){
                         )}
                         {s.notes&&<div style={{fontSize:13,color:T.muted,fontStyle:"italic",marginBottom:10,background:T.bg,padding:"8px 12px",borderRadius:8}}>{s.notes}</div>}
                         {ingList.length>0&&(
-                          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
                             {ingList.map(ing=>{
                               const ee=data.ingredients[ing];
                               const myL=ee.filter(e=>e.supplier===name).slice(-1)[0]?.price;
@@ -543,6 +641,12 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup}){
                               return <Tag key={ing} c={cheap?T.teal:T.coral} bg={cheap?T.tealL:T.coralL} sm>{ing} ${myL?.toFixed(2)}</Tag>;
                             })}
                           </div>
+                        )}
+                        <div style={{display:"flex",gap:8}}>
+                          <button onClick={()=>startEdit(name,s)} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>✎ Edit details</button>
+                          <button onClick={()=>delSup(name)} style={{marginLeft:"auto",background:"none",border:`1px solid ${T.coral}55`,borderRadius:16,color:T.coral,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Delete</button>
+                        </div>
+                          </>
                         )}
                       </div>
                     )}
@@ -564,15 +668,20 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
   const [fL1,setFL1]=useState("");
   const [fL2,setFL2]=useState("");
   const [saving,setSaving]=useState(false);
+  const [period,setPeriod]=useState("month");
+  const [off,setOff]=useState(0);
   const monthOptions=(()=>{
     const opts=[];const now=new Date(2026,6);
     for(let i=0;i<12;i++){const d=new Date(now.getFullYear(),now.getMonth()-i);opts.push(`${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()]} ${d.getFullYear()}`);}
     return opts;
   })();
   const submit=async()=>{
-    if(!fMonth||!fL1||!fL2)return;
+    if(!fMonth||(!fL1&&!fL2))return;
     setSaving(true);
-    await onSaveSales(fMonth,parseFloat(fL1)||0,parseFloat(fL2)||0);
+    const existing=data.sales[fMonth]||{};
+    const l1=fL1!==""?(parseFloat(fL1)||0):(existing.loc1||0);
+    const l2=fL2!==""?(parseFloat(fL2)||0):(existing.loc2||0);
+    await onSaveSales(fMonth,l1,l2);
     setSaving(false);setShowForm(false);setFMonth("");setFL1("");setFL2("");
   };
   const inp={width:"100%",background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"11px 14px",color:T.navy,fontSize:15,fontFamily:"inherit",outline:"none"};
@@ -602,45 +711,111 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
               <div style={{fontSize:11,color:T.muted,fontWeight:700,marginBottom:5}}>{data.locations.loc2.toUpperCase()} $</div>
               <input type="number" inputMode="decimal" placeholder="0.00" value={fL2} onChange={e=>setFL2(e.target.value)} style={inp}/>
             </div>
-            <button onClick={submit} disabled={saving||!fMonth||!fL1||!fL2} style={{background:T.teal,color:"#fff",border:"none",borderRadius:10,padding:"12px 22px",fontSize:14,fontWeight:800,cursor:saving?"not-allowed":"pointer",opacity:saving||!fMonth||!fL1||!fL2?0.6:1,whiteSpace:"nowrap"}}>{saving?"Saving...":"Save"}</button>
+            <button onClick={submit} disabled={saving||!fMonth||(!fL1&&!fL2)} style={{background:T.teal,color:"#fff",border:"none",borderRadius:10,padding:"12px 22px",fontSize:14,fontWeight:800,cursor:saving?"not-allowed":"pointer",opacity:saving||!fMonth||(!fL1&&!fL2)?0.6:1,whiteSpace:"nowrap"}}>{saving?"Saving...":"Save"}</button>
           </div>
           {fMonth&&data.sales[fMonth]&&<div style={{marginTop:10,fontSize:12,color:T.amber,fontWeight:600}}>⚠ {fMonth} already has figures (${(data.sales[fMonth].loc1||0).toLocaleString()} / ${(data.sales[fMonth].loc2||0).toLocaleString()}) — saving will overwrite them.</div>}
         </div>
       )}
-      {[...months].reverse().map(mon=>{
-        const r=cRev(mon,locKey),c=cCOGS(mon,locKey),g=r-c,p=r?(c/r)*100:0;
+      {(()=>{
+        const MN=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const now=new Date();
+        const periodMonths=()=>{
+          if(period==="month"){const d=new Date(now.getFullYear(),now.getMonth()-off);return[[`${MN[d.getMonth()]} ${d.getFullYear()}`]].flat();}
+          if(period==="quarter"){
+            const qStart=Math.floor(now.getMonth()/3)*3;
+            const d=new Date(now.getFullYear(),qStart-off*3);
+            return[0,1,2].map(i=>{const m=new Date(d.getFullYear(),d.getMonth()+i);return`${MN[m.getMonth()]} ${m.getFullYear()}`;});
+          }
+          const y=now.getFullYear()-off;
+          return MN.map(m=>`${m} ${y}`);
+        };
+        const pm=periodMonths();
+        const label=period==="month"?pm[0]:period==="quarter"?`Q${Math.floor(MN.indexOf(pm[0].split(" ")[0])/3)+1} ${pm[0].split(" ")[1]}`:pm[0].split(" ")[1];
+        const r=pm.reduce((s,m)=>s+cRev(m,locKey),0);
+        const c=pm.reduce((s,m)=>s+cCOGS(m,locKey),0);
+        const g=r-c,p=r?(c/r)*100:0;
+        const hasData=pm.some(m=>data.sales[m]);
         return(
-          <div key={mon} style={{...card,marginBottom:16}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-              <div style={{fontSize:isMobile?16:20,fontWeight:800}}>{mon}</div>
-              <Tag c={p>30?T.coral:T.teal} bg={p>30?T.coralL:T.tealL}>Food cost {p.toFixed(1)}%{p>30?" ⚠":""}</Tag>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:isMobile?8:12,marginBottom:loc==="all"?16:0}}>
-              {[["Revenue",r,T.blue,T.blueL],["COGS",c,p>30?T.coral:T.amber,p>30?T.coralL:T.amberL],["Gross Profit",g,T.teal,T.tealL]].map(([l,v,col,bg])=>(
-                <div key={l} style={{background:bg,borderRadius:10,padding:isMobile?"10px 12px":"14px 18px",border:`1px solid ${T.border}`}}>
-                  <div style={{fontSize:10,color:T.inkL,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:5}}>{l}</div>
-                  <div style={{fontSize:isMobile?18:24,fontWeight:900,color:col,letterSpacing:"-0.5px"}}>${fmt(v)}</div>
-                </div>
-              ))}
-            </div>
-            {loc==="all"&&(
-              <div style={{borderTop:`1px solid ${T.border}`,paddingTop:14}}>
-                {["loc1","loc2"].map((l,i)=>{
-                  const lr=cRev(mon,l),lc=cCOGS(mon,l),lp=lr?(lc/lr)*100:0;
-                  return(
-                    <div key={l} style={{display:"flex",gap:12,alignItems:"center",padding:"6px 0",borderBottom:i===0?`1px solid ${T.border}`:"none"}}>
-                      <div style={{fontSize:isMobile?12:14,color:T.slate,fontWeight:600,width:isMobile?90:180,flexShrink:0}}>{data.locations[l]}</div>
-                      <div style={{fontSize:isMobile?12:14,color:T.inkL}}>${fmt(lr)}</div>
-                      <div style={{flex:1}}/>
-                      <div style={{fontSize:isMobile?12:14,fontWeight:700,color:lp>30?T.coral:T.teal}}>{lp.toFixed(1)}%</div>
-                    </div>
-                  );
-                })}
+          <div style={{...card,marginBottom:16}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:16}}>
+              <div style={{display:"flex",gap:3,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:3}}>
+                {[["month","Month"],["quarter","Quarter"],["year","Year"]].map(([id,lb])=>(
+                  <button key={id} onClick={()=>{setPeriod(id);setOff(0);}} style={{background:period===id?T.blue:"transparent",color:period===id?"#fff":T.slate,border:"none",borderRadius:16,padding:"6px 14px",fontSize:13,fontWeight:period===id?700:500,cursor:"pointer"}}>{lb}</button>
+                ))}
               </div>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <button onClick={()=>setOff(o=>o+1)} style={{width:32,height:32,borderRadius:"50%",border:`1px solid ${T.border}`,background:T.card,color:T.slate,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>‹</button>
+                <div style={{fontSize:isMobile?14:16,fontWeight:800,minWidth:90,textAlign:"center"}}>{label}</div>
+                <button onClick={()=>setOff(o=>Math.max(0,o-1))} disabled={off===0} style={{width:32,height:32,borderRadius:"50%",border:`1px solid ${T.border}`,background:T.card,color:T.slate,fontSize:15,cursor:off===0?"not-allowed":"pointer",opacity:off===0?0.35:1,display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>›</button>
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <Tag c={p>30?T.coral:T.teal} bg={p>30?T.coralL:T.tealL}>Food cost {p.toFixed(1)}%{p>30?" ⚠":""}</Tag>
+                <button onClick={()=>{
+                  const rows=[["Date","Ingredient","Price","Unit","Supplier"]];
+                  Object.entries(data.ingredients).forEach(([ing,entries])=>{
+                    entries.forEach(e=>{
+                      const d=new Date(e.date);
+                      const mk=`${MN[d.getMonth()]} ${d.getFullYear()}`;
+                      if(pm.includes(mk))rows.push([e.date,ing,e.price,e.unit,e.supplier]);
+                    });
+                  });
+                  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+                  const blob=new Blob([csv],{type:"text/csv"});
+                  const a=document.createElement("a");
+                  a.href=URL.createObjectURL(blob);
+                  a.download=`westcoast-poke-prices-${label.replace(/\s/g,"-")}.csv`;
+                  a.click();URL.revokeObjectURL(a.href);
+                }} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>⬇ CSV</button>
+              </div>
+            </div>
+            {!hasData?(
+              <div style={{textAlign:"center",padding:"28px 16px",color:T.muted,fontSize:14}}>No sales entered for this period yet.</div>
+            ):(
+              <>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:isMobile?8:12,marginBottom:loc==="all"?16:0}}>
+                  {[["Revenue",r,T.blue,T.blueL],["COGS",c,p>30?T.coral:T.amber,p>30?T.coralL:T.amberL],["Gross Profit",g,T.teal,T.tealL]].map(([l,v,col,bg])=>(
+                    <div key={l} style={{background:bg,borderRadius:10,padding:isMobile?"10px 12px":"14px 18px",border:`1px solid ${T.border}`}}>
+                      <div style={{fontSize:10,color:T.inkL,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:5}}>{l}</div>
+                      <div style={{fontSize:isMobile?18:24,fontWeight:900,color:col,letterSpacing:"-0.5px"}}>${fmt(v)}</div>
+                    </div>
+                  ))}
+                </div>
+                {loc==="all"&&(
+                  <div style={{borderTop:`1px solid ${T.border}`,paddingTop:14}}>
+                    {["loc1","loc2"].map((l,i)=>{
+                      const lr=pm.reduce((s,m)=>s+cRev(m,l),0),lc=pm.reduce((s,m)=>s+cCOGS(m,l),0),lp=lr?(lc/lr)*100:0;
+                      return(
+                        <div key={l} style={{display:"flex",gap:12,alignItems:"center",padding:"6px 0",borderBottom:i===0?`1px solid ${T.border}`:"none"}}>
+                          <div style={{fontSize:isMobile?12:14,color:T.slate,fontWeight:600,width:isMobile?90:180,flexShrink:0}}>{data.locations[l]}</div>
+                          <div style={{fontSize:isMobile?12:14,color:T.inkL}}>${fmt(lr)}</div>
+                          <div style={{flex:1}}/>
+                          <div style={{fontSize:isMobile?12:14,fontWeight:700,color:lp>30?T.coral:T.teal}}>{lp.toFixed(1)}%</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {period!=="month"&&(
+                  <div style={{borderTop:`1px solid ${T.border}`,paddingTop:12,marginTop:12}}>
+                    <div style={{fontSize:11,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:8}}>Months in this period</div>
+                    {pm.filter(m=>data.sales[m]).map(m=>{
+                      const mr=cRev(m,locKey),mc=cCOGS(m,locKey),mp=mr?(mc/mr)*100:0;
+                      return(
+                        <div key={m} style={{display:"flex",gap:12,alignItems:"center",padding:"5px 0",fontSize:isMobile?12:13}}>
+                          <div style={{color:T.slate,fontWeight:600,width:80}}>{m}</div>
+                          <div style={{color:T.inkL}}>${fmt(mr)}</div>
+                          <div style={{flex:1}}/>
+                          <div style={{fontWeight:700,color:mp>30?T.coral:T.teal}}>{mp.toFixed(1)}%</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </div>
         );
-      })}
+      })()}
       <div style={card}>
         <h3 style={{margin:"0 0 16px",fontSize:isMobile?16:20,fontWeight:800}}>Menu Cost Analysis <span style={{fontSize:12,color:T.muted,fontWeight:400}}>· Medium size bowls</span></h3>
         <div style={{display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",columnGap:32}}>
@@ -666,11 +841,17 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
 }
 
 // ─── SCAN ────────────────────────────────────────────────────────────────────
-function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okScan,onFile,fileRef}){
+function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okScan,onFile,fileRef,scanLoc,setScanLoc,locations}){
   return(
     <div style={{maxWidth:580,margin:"0 auto"}}>
       <h2 style={{margin:"0 0 6px",fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Scan Receipt or Invoice</h2>
-      <p style={{margin:"0 0 24px",fontSize:isMobile?13:15,color:T.muted,lineHeight:1.6}}>AI extracts ingredients, prices, and supplier automatically. Duplicates are blocked. The photo is discarded after extraction — only the data is saved.</p>
+      <p style={{margin:"0 0 16px",fontSize:isMobile?13:15,color:T.muted,lineHeight:1.6}}>AI extracts ingredients, prices, and supplier automatically. Duplicates are blocked. The photo is discarded after extraction — only the data is saved.</p>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20,flexWrap:"wrap"}}>
+        <span style={{fontSize:12,color:T.muted,fontWeight:700}}>Delivery for:</span>
+        {[{id:"all",l:"Shared"},{id:"loc1",l:locations.loc1},{id:"loc2",l:locations.loc2}].map(l=>(
+          <button key={l.id} onClick={()=>setScanLoc(l.id)} style={{background:scanLoc===l.id?T.blue:"transparent",border:`1.5px solid ${scanLoc===l.id?T.blue:T.border}`,color:scanLoc===l.id?"#fff":T.slate,padding:"5px 12px",borderRadius:18,fontSize:12,cursor:"pointer",fontWeight:600}}>{l.l}</button>
+        ))}
+      </div>
       {!img?(
         <div onClick={()=>fileRef.current?.click()} style={{border:`2px dashed ${T.border}`,borderRadius:20,padding:isMobile?"52px 24px":"72px 40px",textAlign:"center",cursor:"pointer",background:T.card}}>
           <div style={{fontSize:isMobile?52:72,marginBottom:16}}>📸</div>
@@ -789,6 +970,113 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,loadingInsigh
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── MENU / RECIPE EDITOR ────────────────────────────────────────────────────
+function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload}){
+  const [sel,setSel]=useState(null);
+  const [draft,setDraft]=useState(null); // {price, ing:{}}
+  const [addSel,setAddSel]=useState("");
+  const [newBowl,setNewBowl]=useState("");
+  const [saving,setSaving]=useState(false);
+  const inp={background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 10px",color:T.navy,fontSize:14,fontFamily:"inherit",outline:"none"};
+  const gIL=n=>{const e=data.ingredients[n];return e&&e.length?e[e.length-1].price:0;};
+  const draftCost=d=>Object.entries(d.ing).reduce((s,[i,q])=>s+gIL(i)*(parseFloat(q)||0),0);
+  const open=(name)=>{const m=data.menu[name];setSel(name);setDraft({price:m.price,ing:{...m.ing}});};
+  const save=async()=>{
+    if(!draft)return;setSaving(true);
+    const cleanIng={};
+    Object.entries(draft.ing).forEach(([i,q])=>{const n=parseFloat(q);if(n>0)cleanIng[i]=n;});
+    try{
+      await saveMenuItem(sel,parseFloat(draft.price)||0,cleanIng);
+      await reload();say(`${sel} saved`);setSel(null);setDraft(null);
+    }catch(e){say("Save failed",true);}
+    setSaving(false);
+  };
+  const delBowl=async(name)=>{
+    if(!window.confirm(`Delete "${name}" from the menu? This cannot be undone.`))return;
+    try{await deleteMenuItem(name);await reload();setSel(null);setDraft(null);say(`${name} deleted`);}
+    catch(e){say("Delete failed",true);}
+  };
+  const createBowl=async()=>{
+    const name=newBowl.trim();if(!name)return;
+    if(data.menu[name]){say("A bowl with that name exists",true);return;}
+    try{
+      await saveMenuItem(name,18.95,{});
+      await reload();setNewBowl("");
+      setSel(name);setDraft({price:18.95,ing:{}});
+      say(`${name} created — add its ingredients`);
+    }catch(e){say("Create failed",true);}
+  };
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,flexWrap:"wrap",gap:8}}>
+        <h2 style={{margin:0,fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Menu & Recipes</h2>
+        <div style={{display:"flex",gap:8}}>
+          <input value={newBowl} onChange={e=>setNewBowl(e.target.value)} onKeyDown={e=>e.key==="Enter"&&createBowl()} placeholder="New bowl name..." style={{...inp,width:160}}/>
+          <button onClick={createBowl} disabled={!newBowl.trim()} style={{background:T.blue,color:"#fff",border:"none",borderRadius:20,padding:"8px 16px",fontSize:13,fontWeight:700,cursor:"pointer",opacity:newBowl.trim()?1:0.5,whiteSpace:"nowrap"}}>+ Add bowl</button>
+        </div>
+      </div>
+      <p style={{margin:"0 0 18px",fontSize:isMobile?13:14,color:T.muted}}>Tap a bowl to edit portions and pricing. Costs recalculate live as you type — use it to test what-if changes before committing.</p>
+      {Object.keys(data.menu).length===0&&(
+        <div style={{...card,textAlign:"center",padding:"48px 24px",color:T.muted}}>
+          <div style={{fontSize:44,marginBottom:12}}>🍲</div>
+          <div style={{fontSize:16,fontWeight:700,color:T.slate,marginBottom:6}}>No menu items yet</div>
+          <div style={{fontSize:14}}>Add your first bowl above to start tracking margins.</div>
+        </div>
+      )}
+      <div style={{display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",gap:10}}>
+        {Object.entries(data.menu).map(([name,m])=>{
+          const isSel=sel===name;
+          const d=isSel&&draft?draft:m;
+          const cost=isSel&&draft?draftCost(draft):bCost(name);
+          const price=parseFloat(d.price)||0;
+          const fp=price?(cost/price)*100:0;
+          const mg=price?((price-cost)/price)*100:0;
+          return(
+            <div key={name} onClick={()=>!isSel&&open(name)} style={{...card,borderColor:isSel?T.blue:T.border,cursor:isSel?"default":"pointer",gridColumn:isSel&&isDesktop?"1 / -1":"auto"}}>
+              <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:120}}>
+                  <div style={{fontSize:isMobile?15:17,fontWeight:700}}>{name}</div>
+                  <div style={{fontSize:12,color:T.muted}}>Sell ${fmt(price)} · Cost ${fmt(cost)}</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <Tag c={fp>30?T.coral:T.teal} bg={fp>30?T.coralL:T.tealL} sm>{fp.toFixed(1)}% food cost</Tag>
+                  <div style={{fontSize:11,color:T.muted,marginTop:3}}>{mg.toFixed(1)}% margin</div>
+                </div>
+              </div>
+              {isSel&&draft&&(
+                <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${T.border}`}} onClick={e=>e.stopPropagation()}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+                    <span style={{fontSize:12,color:T.muted,fontWeight:700}}>SELL PRICE $</span>
+                    <input type="number" inputMode="decimal" value={draft.price} onChange={e=>setDraft(p=>({...p,price:e.target.value}))} style={{...inp,width:100,textAlign:"right",fontWeight:700}}/>
+                  </div>
+                  {Object.entries(draft.ing).map(([ing,qty])=>(
+                    <div key={ing} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${T.border}`}}>
+                      <div style={{flex:1,fontSize:14,fontWeight:600}}>{ing}</div>
+                      <input type="number" inputMode="decimal" step="0.01" value={qty} onChange={e=>setDraft(p=>({...p,ing:{...p.ing,[ing]:e.target.value}}))} style={{...inp,width:80,textAlign:"right"}}/>
+                      <div style={{fontSize:12,color:T.muted,width:44}}>{data.ingredients[ing]?.[0]?.unit||"unit"}</div>
+                      <div style={{fontSize:13,fontWeight:600,color:T.slate,width:64,textAlign:"right"}}>${fmt(gIL(ing)*(parseFloat(qty)||0))}</div>
+                      <button onClick={()=>setDraft(p=>{const n={...p.ing};delete n[ing];return{...p,ing:n};})} style={{background:"none",border:"none",color:T.coral,fontSize:16,cursor:"pointer",padding:"2px 6px"}}>×</button>
+                    </div>
+                  ))}
+                  <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap"}}>
+                    <select value={addSel} onChange={e=>{const v=e.target.value;if(v){setDraft(p=>({...p,ing:{...p.ing,[v]:p.ing[v]||0.1}}));setAddSel("");}}} style={{...inp,flex:1,minWidth:150}}>
+                      <option value="">Add ingredient...</option>
+                      {Object.keys(data.ingredients).filter(i=>!(i in draft.ing)).map(i=><option key={i} value={i}>{i}</option>)}
+                    </select>
+                    <button onClick={save} disabled={saving} style={{background:T.teal,color:"#fff",border:"none",borderRadius:10,padding:"10px 22px",fontSize:14,fontWeight:800,cursor:"pointer",opacity:saving?0.6:1}}>{saving?"Saving...":"Save recipe"}</button>
+                    <button onClick={()=>{setSel(null);setDraft(null);}} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:10,color:T.muted,padding:"10px 16px",fontSize:13,cursor:"pointer"}}>Cancel</button>
+                    <button onClick={()=>delBowl(name)} style={{marginLeft:"auto",background:"none",border:`1px solid ${T.coral}55`,borderRadius:10,color:T.coral,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Delete bowl</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
