@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { LIGHT, DARK, DATA, gL, gPct, fmt, fmtK, useBreakpoint, Spark, PriceChart, WCP_LOGO, ADDONS, CATALOG } from "./data.jsx";
 import { supabase, isOwner } from "./supabase.js";
-import { loadAll, seedIfEmpty, saveReceipt, saveSales, addPrice, deletePriceEntry, deleteIngredient, deleteSupplier, upsertSupplier, saveMenuItem, deleteMenuItem, resyncMenu, saveAlert, saveMarketChecks, loadMarketChecks, canRunToday, recordRun, loadSetting, saveSetting, scansThisMonth, recordScan, loadReceipts, deleteReceiptCascade, deleteReceiptByKey, renameIngredientInPrices, loadDiscovered, saveDiscovered } from "./db.js";
+import { loadAll, seedIfEmpty, saveReceipt, saveSales, addPrice, deletePriceEntry, deleteIngredient, deleteSupplier, upsertSupplier, saveMenuItem, deleteMenuItem, resyncMenu, saveAlert, saveMarketChecks, loadMarketChecks, canRunToday, recordRun, loadSetting, saveSetting, scansThisMonth, recordScan, loadReceipts, deleteReceiptCascade, deleteReceiptByKey, renameIngredientInPrices, loadDiscovered, saveDiscovered, saveIngredientFlags, saveCustomIngredients } from "./db.js";
 import Login from "./Login.jsx";
 import * as XLSX from "xlsx";
 
@@ -48,6 +48,10 @@ const isCOGSCat=c=>COGS_CATS.has(c||"Other");
 // (a) taxonomy alignment: a receipt line that matches a known catalogue ingredient inherits
 // that ingredient's catalogue category and is always treated as food (tracked).
 const CATALOG_BY_NAME=(()=>{const m={};CATALOG.forEach(c=>{m[c.name.toLowerCase()]=c;});return m;})();
+// Prepared/made-in-house categories: excluded from live price checks by default
+// (you buy their raw inputs, not the prepared item itself).
+const PREPARED_CATS=new Set(["Preparation","Prepared protein","Prepared side","Prepared topping","Sauce / dressing","Pickled / fermented"]);
+const defaultCheck=cat=>!PREPARED_CATS.has(cat||"");
 const catalogMatch=name=>CATALOG_BY_NAME[String(name||"").trim().toLowerCase()]||null;
 const alignLine=it=>{const m=catalogMatch(it.ingredient);if(m)return{...it,category:m.cat,matched:true,food:true};return{...it,matched:false,food:isCOGSCat(it.category)};};
 
@@ -352,18 +356,28 @@ export default function App(){
     setChkIng(null);
   };
 
-  const doAllChecks=async()=>{
-    const ings=Object.entries(data.ingredients);
-    if(!ings.length){say("No priced ingredients yet — scan a receipt or add a price first",true);return;}
+  // Live market refresh: preferred suppliers only, over ticked (price-checkable) ingredients.
+  // Feeds "Best price today" + advisory insights. Never writes into actual price history.
+  const checkableIngredients=()=>{
+    const flags=data.ingredientFlags||{};
+    const catOf=n=>CATALOG_BY_NAME[String(n).toLowerCase()]?.cat||(data.customIngredients||[]).find(c=>c.name===n)?.cat||"Other";
+    const names=[...new Set([...CATALOG.map(c=>c.name),...(data.customIngredients||[]).map(c=>c.name),...Object.keys(data.ingredients)])];
+    return names.filter(n=>flags[n]!==undefined?flags[n]:defaultCheck(catOf(n)));
+  };
+  const refreshLivePrices=async()=>{
+    const prefs=Object.entries(data.suppliers).filter(([,sp])=>sp.preferred).map(([n])=>n);
+    if(!prefs.length){say("Star your preferred suppliers first — live prices come only from them",true);return;}
+    const list=checkableIngredients();
+    if(!list.length){say("No price-checkable ingredients — tick the raw items you buy in Ingredients",true);return;}
     let gate;
-    try{gate=await canRunToday("price_check");}catch(e){console.error(e);say("Couldn't check the daily limit — try again",true);return;}
-    if(!gate.allowed){say(`Price check limit reached (${gate.used}/${gate.limit} today) — next check tomorrow`,true);return;}
+    try{gate=await canRunToday("preferred_refresh");}catch(e){console.error(e);say("Couldn't check the daily limit — try again",true);return;}
+    if(!gate.allowed){say(`Live price limit reached (${gate.used}/${gate.limit} today) — try again tomorrow`,true);return;}
     setChkAll(true);
     try{
-      await recordRun("price_check",session?.user?.email);
-      for(const[n,e]of ings)await doCheck(n,e[0]?.unit||"unit",gL(e));
-      say(`Checked ${ings.length} ingredient${ings.length!==1?"s":""} — open one for its result, or see Best price today`);
-    }catch(e){console.error(e);say((e?.message||"Price check failed").slice(0,120),true);}
+      await recordRun("preferred_refresh",session?.user?.email);
+      for(const n of list){const e=data.ingredients[n];await doCheck(n,e?.[0]?.unit||"unit",e?gL(e):0);}
+      say(`Live prices refreshed across ${list.length} ingredient${list.length!==1?"s":""} at your preferred suppliers`);
+    }catch(e){console.error(e);say((e?.message||"Live refresh failed").slice(0,120),true);}
     finally{setChkAll(false);try{await refreshCaps();}catch(e){}}
   };
 
@@ -389,6 +403,7 @@ export default function App(){
       const latest=rows[rows.length-1];const first=rows[0];
       return {ingredient:ing,latestMarket:latest?`$${latest.price} (${latest.source}, ${String(latest.at).slice(0,10)})`:null,checksRecorded:rows.length,marketTrendPct:rows.length>=3&&first.price?(((latest.price-first.price)/first.price)*100).toFixed(1):null,advisory:true};
     }),
+    dataNote:"'ingredients' prices and all cost/margin/trend figures are ACTUALS from receipts — treat these as ground truth. 'marketSignals' are live advisory web checks at preferred suppliers: use them only to compare paid-vs-market and flag opportunities, never fold them into actual cost or margin maths. Some prepared items (sauces, prepared toppings) carry estimated recipe costs, not receipt-verified — flag as estimates if you rely on them.",
   });
 
   const generateInsights=async()=>{
@@ -491,8 +506,8 @@ export default function App(){
         </div>
         <div style={{flex:1,minWidth:0,height:"100%",overflowY:"auto"}}>
       <div style={{padding:isMobile?"16px":"28px 32px",maxWidth:MAXW,margin:"0 auto"}}>
-        {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market}}/>}
-        {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedPrice,priceFor,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,market}}/>}
+        {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market,onRefreshLive:refreshLivePrices,liveBusy:chkAll}}/>}
+        {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedPrice,priceFor,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,market}}/>}
         {tab==="suppliers"&&<Suppliers {...{T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,reload}}/>}
         {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,cBowlRev,cOtherRev,bowlUnits,bowlUnitsTotal,sizeAgg,totalBowls,costSz,isBowl,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,bFCP,bMargin,months,say,onSaveSales:async(month,l1,l2,mix)=>{
           const u=JSON.parse(JSON.stringify(data));
@@ -513,7 +528,7 @@ export default function App(){
 }
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
-function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market={}}){
+function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market={},onRefreshLive,liveBusy}){
   const h=headline;
   return(
     <div>
@@ -591,8 +606,9 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
             <div style={{fontSize:isMobile?15:17,fontWeight:700}}>Best price today</div>
             <Tag c={T.amber} bg={T.amberL} sm>LIVE · ADVISORY</Tag>
+            <button onClick={onRefreshLive} disabled={liveBusy} style={{marginLeft:"auto",background:liveBusy?T.bg:T.blue,color:liveBusy?T.muted:"#fff",border:"none",borderRadius:16,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:liveBusy?"wait":"pointer"}}>{liveBusy?"Refreshing…":"⟳ Refresh live prices"}</button>
           </div>
-          <div style={{fontSize:12,color:T.muted,marginBottom:14,lineHeight:1.6}}>Live cheapest price found online at your preferred suppliers, from your latest price checks. Indicative only — <strong>confirm with the supplier before ordering; don't rely on this alone.</strong> Tap ↗ to open the source page the price came from. Populate or refresh via Menu → Ingredients → Check prices.</div>
+          <div style={{fontSize:12,color:T.muted,marginBottom:14,lineHeight:1.6}}>Live cheapest price found online at your <strong>preferred suppliers only</strong>. Indicative only — <strong>confirm with the supplier before ordering; don't rely on this alone.</strong> Tap ↗ to open the source page the price came from. Click Refresh to run a live search (uses your price-checkable ingredients).</div>
           {(()=>{
             const rows=Object.entries(market||{}).map(([ing,checks])=>{
               const verified=(checks||[]).filter(c=>c.url&&/^https?:\/\//.test(c.url)&&Number(c.price)>0);
@@ -604,8 +620,8 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
               <div style={{textAlign:"center",padding:"24px 12px",color:T.muted}}>
                 <div style={{fontSize:30,marginBottom:8}}>🌐</div>
                 <div style={{fontSize:13,fontWeight:700,color:T.slate,marginBottom:4}}>No live prices yet</div>
-                <div style={{fontSize:12,lineHeight:1.6,marginBottom:14}}>Star your preferred suppliers, then run a price check — the cheapest online price we can source for each ingredient (with its source link) appears here. Nothing is shown unless a real source is found.</div>
-                <button onClick={()=>setTab("menu")} style={{background:T.blue,color:"#fff",border:"none",borderRadius:20,padding:"8px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Go to Ingredients →</button>
+                <div style={{fontSize:12,lineHeight:1.6,marginBottom:14}}>Star your preferred suppliers, tick the raw ingredients you buy in Ingredients, then click <strong>Refresh live prices</strong> above — the cheapest online price we can source at your preferred suppliers (with its source link) appears here. Nothing is shown unless a real source is found.</div>
+                <button onClick={()=>setTab("suppliers")} style={{background:T.blue,color:"#fff",border:"none",borderRadius:20,padding:"8px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Go to Suppliers →</button>
               </div>
             );
             return(
@@ -669,7 +685,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
 const fmtK2 = n => typeof n==="number"&&n>=1000?`$${(n/1000).toFixed(1)}k`:typeof n==="number"?`$${n.toLocaleString("en-CA",{minimumFractionDigits:2,maximumFractionDigits:2})}`:n;
 
 // ─── INGREDIENTS ─────────────────────────────────────────────────────────────
-function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,say,reload,market}){
+function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks,chkIng,chkAll,doCheck,say,reload,market}){
   const [showAdd,setShowAdd]=useState(false);
   const [mIng,setMIng]=useState("");const [mPrice,setMPrice]=useState("");const [mUnit,setMUnit]=useState("lb");const [mSup,setMSup]=useState("");const [mDate,setMDate]=useState(new Date().toISOString().slice(0,10));
   const [mSaving,setMSaving]=useState(false);
@@ -679,9 +695,28 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
   const [recipePick,setRecipePick]=useState(null);
   const [recipeSel,setRecipeSel]=useState({});
   const [busy,setBusy]=useState(false);
+  const [showNewIng,setShowNewIng]=useState(false);
+  const [niName,setNiName]=useState("");const [niCat,setNiCat]=useState("Produce");const [niPrice,setNiPrice]=useState("");const [niUnit,setNiUnit]=useState("lb");const [niSup,setNiSup]=useState("");
+  const ING_CATS=["Protein","Produce","Base / side","Crunch / finish","Seasoning / finish","Pickled / fermented","Prepared protein","Prepared side","Prepared topping","Sauce / dressing","Preparation"];
+  const catOf=n=>CATALOG_BY_NAME[String(n).toLowerCase()]?.cat||(data.customIngredients||[]).find(c=>c.name===n)?.cat||"Other";
+  const isChecked=n=>{const f=data.ingredientFlags||{};return f[n]!==undefined?f[n]:defaultCheck(catOf(n));};
+  const toggleCheck=async(n)=>{
+    const f={...(data.ingredientFlags||{})};f[n]=!isChecked(n);
+    try{await saveIngredientFlags(f);await reload();}catch(e){say("Save failed",true);}
+  };
+  const saveNewIng=async()=>{
+    const nm=niName.trim();if(!nm)return;setBusy(true);
+    try{
+      if(niPrice){await addPrice(nm,parseFloat(niPrice),niUnit,niSup.trim()||"Manual entry",new Date().toISOString().slice(0,10));}
+      else{const cur=data.customIngredients||[];if(!cur.some(c=>c.name===nm)&&!CATALOG_BY_NAME[nm.toLowerCase()])await saveCustomIngredients([...cur,{name:nm,cat:niCat}]);}
+      await reload();say(niPrice?`${nm} added with price`:`${nm} added`);
+      setShowNewIng(false);setNiName("");setNiPrice("");setNiSup("");
+    }catch(e){console.error(e);say("Save failed",true);}
+    setBusy(false);
+  };
   const SZ3=["small","medium","large"];
   const recipesUsing=(ing)=>Object.keys(data.menu).filter(n=>SZ3.some(sz=>data.menu[n].ing?.[sz]?.[ing]!=null));
-  const allIngNames=[...new Set([...CATALOG.map(c=>c.name),...Object.keys(data.ingredients)])].sort((a,b)=>a.localeCompare(b));
+  const allIngNames=[...new Set([...CATALOG.map(c=>c.name),...(data.customIngredients||[]).map(c=>c.name),...Object.keys(data.ingredients)])].sort((a,b)=>a.localeCompare(b));
   const formRef=useRef(null);const priceRef=useRef(null);
   const openAdd=(name)=>{
     setShowAdd(true);
@@ -761,11 +796,12 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,flexWrap:"wrap",gap:8}}>
-        <div style={{fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6,maxWidth:560}}>Your full ingredient catalogue ({CATALOG.length}), with recorded price trends for the {Object.keys(data.ingredients).length} you've tracked so far. Tap a priced one for its history and alerts; tap an unpriced one to add its first price.</div>
+        <div style={{fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6,maxWidth:560}}>Your ingredient catalogue with the actual prices you've paid, from receipts and manual entries. Tap a priced one for its history and alerts; tap an unpriced one to add its first price. Live market prices live on the dashboard's "Best price today".</div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <button onClick={()=>showAdd?setShowAdd(false):openAdd()} style={{background:showAdd?"transparent":T.blue,color:showAdd?T.muted:"#fff",border:showAdd?`1px solid ${T.border}`:"none",padding:"8px 16px",borderRadius:20,fontSize:13,cursor:"pointer",fontWeight:700}}>{showAdd?"Cancel":"+ Add price"}</button>
-          <button onClick={doAllChecks} disabled={chkAll} style={{background:T.tealL,border:`1px solid ${T.teal}44`,color:T.teal,padding:"8px 16px",borderRadius:20,fontSize:13,cursor:chkAll?"not-allowed":"pointer",fontWeight:700,opacity:chkAll?0.6:1}}>{chkAll?"🔍 Checking...":`🔍 Check prices · ~$${(0.02*Math.max(1,Object.keys(data.ingredients).length)).toFixed(2)} · daily`}</button>
+          <button onClick={()=>setShowNewIng(v=>!v)} style={{background:showNewIng?"transparent":T.tealL,color:showNewIng?T.muted:T.teal,border:showNewIng?`1px solid ${T.border}`:`1px solid ${T.teal}44`,padding:"8px 16px",borderRadius:20,fontSize:13,cursor:"pointer",fontWeight:700}}>{showNewIng?"Cancel":"+ Add ingredient"}</button>
         </div>
+        <div style={{fontSize:11,color:T.muted,lineHeight:1.6,marginTop:8,flexBasis:"100%"}}>The tickbox marks which items are bought raw and included in live price checks. Prepared items (sauces, prepared toppings, pickled items) are unticked by default — their cost is <strong>estimated from the recipe</strong> rather than receipt-verified, since you make them in-house from raw inputs. Breaking prepared items into their raw components for exact costing is coming later.</div>
       </div>
 
       {showAdd&&(
@@ -782,10 +818,25 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
         </div>
       )}
 
+      {showNewIng&&(
+        <div style={{...card,marginBottom:14,borderColor:T.teal}}>
+          <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>Add an ingredient</div>
+          <div style={{fontSize:12,color:T.muted,marginBottom:12,lineHeight:1.6}}>Add a raw ingredient you buy (e.g. Crab, Lettuce) so receipts can price it and it can be included in live checks. A price is optional — add it now or later. Raw items are price-checkable by default; prepared items aren't.</div>
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"2fr 1.4fr 1fr 1fr 2fr auto",gap:8,alignItems:"end"}}>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>NAME *</div><input value={niName} onChange={e=>setNiName(e.target.value)} placeholder="e.g. Crab" style={inp}/></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>CATEGORY</div><select value={niCat} onChange={e=>setNiCat(e.target.value)} style={inp}>{ING_CATS.map(c=><option key={c}>{c}</option>)}</select></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>PRICE $ (opt)</div><input type="number" inputMode="decimal" value={niPrice} onChange={e=>setNiPrice(e.target.value)} placeholder="—" style={inp}/></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>UNIT</div><select value={niUnit} onChange={e=>setNiUnit(e.target.value)} style={inp}>{["lb","kg","each","bottle","case","25kg","10kg","L","bag"].map(u=><option key={u}>{u}</option>)}</select></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>SUPPLIER (opt)</div><input list="sup-list" value={niSup} onChange={e=>setNiSup(e.target.value)} placeholder="if adding price" style={inp}/></div>
+            <button onClick={saveNewIng} disabled={busy||!niName.trim()} style={{background:T.teal,color:"#fff",border:"none",borderRadius:10,padding:"11px 20px",fontSize:14,fontWeight:800,cursor:"pointer",opacity:busy||!niName.trim()?0.6:1,whiteSpace:"nowrap"}}>{busy?"Saving...":"Add"}</button>
+          </div>
+        </div>
+      )}
+
       {(()=>{
         const catByName=Object.fromEntries(CATALOG.map(c=>[c.name,c]));
-        const names=[...new Set([...CATALOG.map(c=>c.name),...Object.keys(data.ingredients)])];
-        const catOf=n=>catByName[n]?.cat||"Other";
+        const names=[...new Set([...CATALOG.map(c=>c.name),...(data.customIngredients||[]).map(c=>c.name),...Object.keys(data.ingredients)])];
+        const catOf=n=>catByName[n]?.cat||(data.customIngredients||[]).find(c=>c.name===n)?.cat||"Other";
         const order=[];CATALOG.forEach(c=>{if(!order.includes(c.cat))order.push(c.cat);});order.push("Other");
         const groups={};names.forEach(n=>{const c=catOf(n);(groups[c]=groups[c]||[]).push(n);});
         return(
@@ -803,6 +854,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
                         return(
                           <div key={name} style={{borderBottom:last&&!isSel?"none":`1px solid ${T.border}`}}>
                             <div onClick={()=>setSelIng(isSel?null:name)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",cursor:"pointer",background:isSel?T.blueL:"transparent"}}>
+                              <input type="checkbox" checked={isChecked(name)} onClick={e=>e.stopPropagation()} onChange={()=>toggleCheck(name)} title={isChecked(name)?"Included in live price checks":"Excluded (prepared / not bought raw)"} style={{cursor:"pointer",flexShrink:0}}/>
                               <div style={{flex:1,fontSize:13,fontWeight:600}}>{name}{ov&&<span style={{marginLeft:6,fontSize:11,color:T.coral}}>{"\u26a0"}</span>}{recipesUsing(name).length===0&&<span title="Not in any bowl — won't affect food cost" style={{marginLeft:8,fontSize:10,fontWeight:700,color:T.amber,background:T.amberL,border:`1px solid ${T.amber}44`,padding:"1px 7px",borderRadius:10,whiteSpace:"nowrap"}}>not in a bowl</span>}</div>
                               <div style={{fontSize:12,color:T.muted}}>{entries[entries.length-1]?.supplier}</div>
                               <div style={{fontSize:13,fontWeight:700,width:88,textAlign:"right"}}>${fmt(lat)}<span style={{fontSize:10,color:T.muted,fontWeight:400}}>/{entries[0]?.unit}</span></div>
@@ -921,6 +973,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
                       }
                       return(
                         <div key={name} onClick={()=>openAdd(name)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderBottom:last?"none":`1px solid ${T.border}`,cursor:"pointer"}}>
+                          <input type="checkbox" checked={isChecked(name)} onClick={e=>e.stopPropagation()} onChange={()=>toggleCheck(name)} title={isChecked(name)?"Included in live price checks":"Excluded (prepared / not bought raw)"} style={{cursor:"pointer",flexShrink:0}}/>
                           <div style={{flex:1,fontSize:13,fontWeight:600,color:T.slate}}>{name}{meta&&meta.addon&&meta.addonPrice>0?<span style={{marginLeft:8,fontSize:10,color:T.muted}}>add-on ${fmt(meta.addonPrice)}</span>:null}</div>
                           <div style={{fontSize:11,color:T.muted,fontStyle:"italic"}}>{meta&&meta.usedIn?`in ${meta.usedIn.split(", ").filter(Boolean).length} item(s)`:"add-on / BYO"}</div>
                           <div style={{fontSize:12,fontWeight:700,color:T.blue,width:100,textAlign:"right"}}>+ add price</div>
@@ -1129,29 +1182,8 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
       <div style={{...card,marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           <div style={{fontSize:14,fontWeight:700}}>{"\u2605"} Preferred suppliers <span style={{fontSize:12,color:T.muted,fontWeight:400}}>({Object.values(data.suppliers).filter(sp=>sp.preferred).length})</span></div>
-          <button onClick={refreshPreferred} disabled={refBusy} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer",opacity:refBusy?0.6:1}}>{refBusy?"Refreshing...":`\u21bb Refresh prices · ~$${(0.03*Math.max(1,Object.values(data.suppliers).filter(sp=>sp.preferred).length)).toFixed(2)} · 1/day`}</button>
         </div>
-        <div style={{fontSize:11,color:T.muted,marginTop:6}}>Star suppliers in the table below. Refresh runs one live search per preferred supplier \u2014 results are advisory only and never write into your price history.</div>
-        {refResults&&(
-          <div style={{marginTop:12,borderTop:`1px solid ${T.border}`,paddingTop:10}}>
-            {Object.entries(refResults).map(([supName,res])=>(
-              <div key={supName} style={{marginBottom:10}}>
-                <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>{supName} <span style={{fontSize:10,color:T.muted,fontWeight:400}}>checked {res.at||"now"}</span></div>
-                {res.err&&<div style={{fontSize:12,color:T.coral}}>Search failed for this supplier.</div>}
-                {!res.err&&!res.found.length&&<div style={{fontSize:12,color:T.muted}}>No reliable price signals found online.</div>}
-                {res.found.length>0&&(
-                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                    {res.found.map((f,fi)=>{
-                      const cur=data.ingredients[f.ingredient]?gL(data.ingredients[f.ingredient]):null;
-                      const cheaper=cur!=null&&f.price<cur;
-                      return <Tag key={fi} c={cheaper?T.teal:T.slate} bg={cheaper?T.tealL:T.bg} sm>{f.ingredient} ${Number(f.price).toFixed(2)}/{f.unit}{cheaper?` (you pay $${cur.toFixed(2)})`:""}</Tag>;
-                    })}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+        <div style={{fontSize:11,color:T.muted,marginTop:6}}>Star the suppliers you actually buy from. The table below shows the actual prices you've paid them, from receipts. Live market prices are on the dashboard's "Best price today", which sources only from your preferred suppliers.</div>
       </div>
 
       <div style={{...card,padding:0,overflow:"hidden"}}>
@@ -2117,7 +2149,7 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,loadingInsigh
 }
 
 // ─── MENU / RECIPE EDITOR ──────────────────────────────────────────────────────────
-function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedPrice,priceFor,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,market}){
+function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedPrice,priceFor,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,market}){
   const [sub,setSub]=useState("ingredients");
   const [histMonth,setHistMonth]=useState("live");
   const [sel,setSel]=useState(null);
@@ -2214,7 +2246,7 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedP
           <button key={id} onClick={()=>setSub(id)} style={{background:sub===id?T.blue:"transparent",color:sub===id?"#fff":T.slate,border:"none",borderRadius:16,padding:"7px 18px",fontSize:13,fontWeight:sub===id?700:500,cursor:"pointer"}}>{lb}</button>
         ))}
       </div>
-      {sub==="ingredients"&&<Ingredients {...{T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,say,reload,market}}/>}
+      {sub==="ingredients"&&<Ingredients {...{T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks,chkIng,chkAll,doCheck,say,reload,market}}/>}
       {sub==="recipes"&&(<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12,flexWrap:"wrap",gap:8}}>
         <div style={{fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6,maxWidth:640}}>Your bowls with real per-size portions — tap a bowl, pick S / M / L, and enter what the kitchen actually uses for that size. Margins per size recalculate live. Costs update the moment a receipt lands.</div>

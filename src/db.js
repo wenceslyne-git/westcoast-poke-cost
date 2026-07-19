@@ -41,14 +41,23 @@ export async function loadAll() {
   const alertsObj = {};
   (alerts.data || []).forEach(a => { alertsObj[a.ingredient] = Number(a.threshold); });
 
+  const flagsRow = await supabase.from("settings").select("value").eq("key", "ingredient_flags").limit(1);
+  const customRow = await supabase.from("settings").select("value").eq("key", "custom_ingredients").limit(1);
+  const ingredientFlags = (flagsRow.data && flagsRow.data[0] && flagsRow.data[0].value) || {};
+  const customIngredients = (customRow.data && customRow.data[0] && customRow.data[0].value) || [];
+
   return {
     ingredients, suppliers, menu: menuObj, sales: salesObj,
     receipts: (recs.data || []).map(r => r.fingerprint),
     receiptInvoices: (recs.data || []).filter(r => r.invoice_number).map(r => `${(r.supplier || "").toLowerCase().trim()}|${String(r.invoice_number).toLowerCase().trim()}`),
     locations: DATA.locations,
     alerts: alertsObj,
+    ingredientFlags, customIngredients,
   };
 }
+
+export async function saveIngredientFlags(map) { await saveSetting("ingredient_flags", map || {}); }
+export async function saveCustomIngredients(arr) { await saveSetting("custom_ingredients", arr || []); }
 
 export async function seedIfEmpty() {
   const { count } = await supabase.from("menu_items").select("*", { count: "exact", head: true });
