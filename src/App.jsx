@@ -353,12 +353,18 @@ export default function App(){
   };
 
   const doAllChecks=async()=>{
-    const gate=await canRunToday("price_check");
+    const ings=Object.entries(data.ingredients);
+    if(!ings.length){say("No priced ingredients yet — scan a receipt or add a price first",true);return;}
+    let gate;
+    try{gate=await canRunToday("price_check");}catch(e){console.error(e);say("Couldn't check the daily limit — try again",true);return;}
     if(!gate.allowed){say(`Price check limit reached (${gate.used}/${gate.limit} today) — next check tomorrow`,true);return;}
     setChkAll(true);
-    await recordRun("price_check",session?.user?.email);
-    for(const[n,e]of Object.entries(data.ingredients))await doCheck(n,e[0]?.unit||"unit",gL(e));
-    setChkAll(false);await refreshCaps();say("Daily price check complete");
+    try{
+      await recordRun("price_check",session?.user?.email);
+      for(const[n,e]of ings)await doCheck(n,e[0]?.unit||"unit",gL(e));
+      say(`Checked ${ings.length} ingredient${ings.length!==1?"s":""} — open one for its result, or see Best price today`);
+    }catch(e){console.error(e);say((e?.message||"Price check failed").slice(0,120),true);}
+    finally{setChkAll(false);try{await refreshCaps();}catch(e){}}
   };
 
   // ── AI insights ──
@@ -758,7 +764,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
         <div style={{fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6,maxWidth:560}}>Your full ingredient catalogue ({CATALOG.length}), with recorded price trends for the {Object.keys(data.ingredients).length} you've tracked so far. Tap a priced one for its history and alerts; tap an unpriced one to add its first price.</div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <button onClick={()=>showAdd?setShowAdd(false):openAdd()} style={{background:showAdd?"transparent":T.blue,color:showAdd?T.muted:"#fff",border:showAdd?`1px solid ${T.border}`:"none",padding:"8px 16px",borderRadius:20,fontSize:13,cursor:"pointer",fontWeight:700}}>{showAdd?"Cancel":"+ Add price"}</button>
-          <button onClick={doAllChecks} disabled={chkAll} style={{background:T.tealL,border:`1px solid ${T.teal}44`,color:T.teal,padding:"8px 16px",borderRadius:20,fontSize:13,cursor:chkAll?"not-allowed":"pointer",fontWeight:700,opacity:chkAll?0.6:1}}>{chkAll?"🔍 Checking...":`🔍 Check prices · ~$${(0.02*Math.max(1,Object.keys(data.ingredients).length)).toFixed(2)} · 1/day`}</button>
+          <button onClick={doAllChecks} disabled={chkAll} style={{background:T.tealL,border:`1px solid ${T.teal}44`,color:T.teal,padding:"8px 16px",borderRadius:20,fontSize:13,cursor:chkAll?"not-allowed":"pointer",fontWeight:700,opacity:chkAll?0.6:1}}>{chkAll?"🔍 Checking...":`🔍 Check prices · ~$${(0.02*Math.max(1,Object.keys(data.ingredients).length)).toFixed(2)} · daily`}</button>
         </div>
       </div>
 
