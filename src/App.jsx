@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { LIGHT, DARK, DATA, gL, gPct, fmt, fmtK, useBreakpoint, Spark, PriceChart, WCP_LOGO, ADDONS, CATALOG } from "./data.jsx";
 import { supabase, isOwner } from "./supabase.js";
-import { loadAll, seedIfEmpty, saveReceipt, saveSales, addPrice, deletePriceEntry, deleteIngredient, deleteSupplier, upsertSupplier, saveMenuItem, deleteMenuItem, resyncMenu, saveAlert, saveMarketChecks, loadMarketChecks, canRunToday, recordRun, loadSetting, saveSetting, scansThisMonth, recordScan, loadReceipts, deleteReceiptCascade } from "./db.js";
+import { loadAll, seedIfEmpty, saveReceipt, saveSales, addPrice, deletePriceEntry, deleteIngredient, deleteSupplier, upsertSupplier, saveMenuItem, deleteMenuItem, resyncMenu, saveAlert, saveMarketChecks, loadMarketChecks, canRunToday, recordRun, loadSetting, saveSetting, scansThisMonth, recordScan, loadReceipts, deleteReceiptCascade, deleteReceiptByKey } from "./db.js";
 import Login from "./Login.jsx";
 import * as XLSX from "xlsx";
 
@@ -86,6 +86,10 @@ export default function App(){
   const [loc,setLoc]=useState("all");
   const [toast,setToast]=useState(null);
   const [modal,setModal]=useState(null);
+  const [tip,setTip]=useState(null);
+  const [replacing,setReplacing]=useState(false);
+  const tipBelow=text=>({onMouseEnter:e=>{const r=e.currentTarget.getBoundingClientRect();setTip({text,x:r.left+r.width/2,y:r.bottom+6,side:"below"});},onMouseLeave:()=>setTip(null)});
+  const tipRight=text=>({onMouseEnter:e=>{const r=e.currentTarget.getBoundingClientRect();setTip({text,x:r.right+8,y:r.top+r.height/2,side:"right"});},onMouseLeave:()=>setTip(null)});
   const [selIng,setSelIng]=useState(null);
   const [selSup,setSelSup]=useState(null);
   const [img,setImg]=useState(null);
@@ -224,7 +228,13 @@ export default function App(){
       const fileBlock=img.isPdf
         ?{type:"document",source:{type:"base64",media_type:"application/pdf",data:img.b64}}
         :{type:"image",source:{type:"base64",media_type:img.mime||"image/jpeg",data:img.b64}};
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:900,messages:[{role:"user",content:[fileBlock,{type:"text",text:'Parse this supplier receipt or invoice for a poke restaurant in Vancouver. Return ONLY JSON no markdown: {"supplier":"name or Unknown","date":"YYYY-MM-DD","gross_total":0.00,"invoice_total":0.00,"items":[{"ingredient":"normalised name","category":"CATEGORY","price":0.00,"unit":"lb","quantity":1,"line_total":0.00}]}. gross_total = the pre-tax subtotal shown on the receipt. invoice_total = the final total actually paid (after tax). category = the single best fit from exactly this list: Protein, Base, Vegetables, Fruit, Sauces, Toppings, Packaging, Drinks, Cleaning, Equipment, Other. price = UNIT price. quantity = units bought. line_total = quantity x unit price as shown on the receipt. If a total is not printed, use null. Do not add taxes into line items. If unreadable: {"error":"Cannot read receipt clearly"}'}]}]})});
+      const knownList=[...new Set([...CATALOG.map(c=>c.name),...Object.keys(data.ingredients)])].sort((a,b)=>a.localeCompare(b)).join(", ");
+      const prompt='Parse this supplier receipt or invoice for a poke restaurant in Vancouver. Return ONLY JSON no markdown: {"supplier":"name or Unknown","date":"YYYY-MM-DD","gross_total":0.00,"invoice_total":0.00,"items":[{"ingredient":"canonical name","category":"CATEGORY","known":true,"price":0.00,"unit":"lb","quantity":1,"line_total":0.00}]}.\n'
+        +'This business already tracks these ingredients (its master list): '+knownList+'.\n'
+        +'For each purchased line: strip pack size, weight, grade, brand, and marketing words, then map it to the SINGLE closest name on the master list above and return that exact name with "known":true. Example: "AHI TUNA SAKU 6OZ GRADE-A FROZEN" -> "Ahi Tuna". If a line clearly does not match anything on the list, return a short clean generic name (no descriptors) with "known":false so the user can decide whether to add it. Do not invent a match — when unsure, use "known":false.\n'
+        +'category = the single best fit from exactly this list: Protein, Base, Vegetables, Fruit, Sauces, Toppings, Packaging, Drinks, Cleaning, Equipment, Other.\n'
+        +'gross_total = the pre-tax subtotal shown on the receipt. invoice_total = the final total actually paid (after tax). price = UNIT price. quantity = units bought. line_total = quantity x unit price as shown. If a total is not printed, use null. Do not add taxes into line items. If unreadable: {"error":"Cannot read receipt clearly"}';
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:1100,messages:[{role:"user",content:[fileBlock,{type:"text",text:prompt}]}]})});
       const out=await res.json();
       if(!res.ok){
         const apiMsg=out?.error?.message||`API error ${res.status}`;
@@ -237,7 +247,11 @@ export default function App(){
       if(parsed.error){say(parsed.error,true);}
       else{
         recordScan(session?.user?.email).catch(()=>{});
-        parsed.items=(parsed.items||[]).map(alignLine);
+        parsed.items=(parsed.items||[]).map(it=>{
+          const a=alignLine(it);
+          const tracked=!a.matched&&data.ingredients[it.ingredient]!=null;
+          return {...a,tracked,isNew:!a.matched&&!tracked&&a.food,state:a.food?"food":"nonfood"};
+        });
         const fp=`${parsed.supplier}|${parsed.date}|${parsed.items?.length}`;
         if((data.receipts||[]).includes(fp)){setModal(parsed);}
         else{setScanRes(parsed);say(`Found ${parsed.items?.length||0} items on receipt`);}
@@ -248,10 +262,10 @@ export default function App(){
 
   const okScan=async(r=null)=>{
     const result=r||scanRes;if(!result?.items)return;
-    const u=JSON.parse(JSON.stringify(data)),d=result.date||"2026-07-16";
+    const u=JSON.parse(JSON.stringify(data)),d=result.date||new Date().toISOString().slice(0,10);
     // Only food-category lines enter the cost tracker. Non-food lines (packaging, cleaning,
     // equipment, other) stay in the downloadable parsed receipt but never touch food cost.
-    const foodItems=result.items.filter(it=>it.food!==undefined?it.food:isCOGSCat(it.category));
+    const foodItems=result.items.filter(it=>it.state?it.state==="food":(it.food!==undefined?it.food:isCOGSCat(it.category)));
     const excluded=result.items.length-foodItems.length;
     let saved=0;
     foodItems.forEach(it=>{
@@ -270,6 +284,20 @@ export default function App(){
       console.error(e);
       say("Saved locally — database sync failed",true);
     }
+  };
+
+  const replaceScan=async(result)=>{
+    if(!result?.items)return;
+    setReplacing(true);
+    try{
+      await deleteReceiptByKey(result.supplier,result.date);
+      const u=JSON.parse(JSON.stringify(data));
+      u.receipts=(u.receipts||[]).filter(fp=>fp!==`${result.supplier}|${result.date}|${result.items.length}`);
+      Object.keys(u.ingredients).forEach(ing=>{u.ingredients[ing]=u.ingredients[ing].filter(e=>!(e.supplier===result.supplier&&e.date===result.date));if(!u.ingredients[ing].length)delete u.ingredients[ing];});
+      setData(u);
+      await okScan(result);
+    }catch(e){console.error(e);say("Replace failed",true);}
+    setReplacing(false);
   };
 
   // ── price check ──
@@ -365,27 +393,27 @@ export default function App(){
   if(!session||!isOwner(session.user?.email)) return <Login T={T}/>;
 
   return(
-    <div style={{minHeight:"100vh",width:"100%",overflowX:"clip",background:T.bg,color:T.navy,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>
+    <div style={{height:"100dvh",width:"100%",overflow:"hidden",display:"flex",flexDirection:"column",background:T.bg,color:T.navy,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>
 
       {/* modal */}
       {modal&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:20,padding:28,maxWidth:420,width:"100%"}}>
             <div style={{fontSize:36,marginBottom:12}}>⚠️</div>
-            <div style={{fontSize:20,fontWeight:800,marginBottom:8}}>Duplicate Receipt</div>
-            <div style={{fontSize:15,color:T.slate,lineHeight:1.7,marginBottom:20}}>This receipt from <strong>{modal.supplier}</strong> on <strong>{modal.date}</strong> has already been saved.</div>
-            <div style={{display:"flex",gap:10}}>
-              <button onClick={()=>setModal(null)} style={{flex:2,background:T.blue,color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:15,fontWeight:700,cursor:"pointer"}}>Discard Receipt</button>
-              <button onClick={()=>okScan(modal)} style={{flex:1,background:"transparent",color:T.muted,border:`1px solid ${T.border}`,borderRadius:12,padding:"13px",fontSize:13,cursor:"pointer"}}>Override</button>
+            <div style={{fontSize:20,fontWeight:800,marginBottom:8}}>Duplicate receipt</div>
+            <div style={{fontSize:15,color:T.slate,lineHeight:1.7,marginBottom:20}}>A receipt from <strong>{modal.supplier}</strong> on <strong>{modal.date}</strong> is already saved. Discard this scan, or replace the saved one with it — replacing removes the old receipt and its price entries first, then saves this one fresh.</div>
+            <div style={{display:"flex",gap:10,flexDirection:"column"}}>
+              <button onClick={()=>{setModal(null);setImg(null);setScanRes(null);}} style={{background:T.blue,color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:15,fontWeight:700,cursor:"pointer"}}>Discard this scan</button>
+              <button onClick={()=>replaceScan(modal)} disabled={replacing} style={{background:"transparent",color:T.coral,border:`1px solid ${T.coral}55`,borderRadius:12,padding:"12px",fontSize:14,fontWeight:700,cursor:replacing?"wait":"pointer",opacity:replacing?0.6:1}}>{replacing?"Replacing…":"Replace saved receipt"}</button>
             </div>
           </div>
         </div>
       )}
 
-      {toast&&<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",zIndex:999,background:toast.err?T.coral:T.teal,color:"#fff",padding:"10px 22px",borderRadius:30,fontSize:14,fontWeight:700,boxShadow:"0 4px 24px rgba(0,0,0,0.2)",whiteSpace:"nowrap"}}>{toast.msg}</div>}
+      {tip&&<div style={{position:"fixed",left:tip.x,top:tip.y,transform:tip.side==="right"?"translateY(-50%)":"translateX(-50%)",background:T.navy,color:"#fff",fontSize:11,fontWeight:600,padding:"5px 9px",borderRadius:7,pointerEvents:"none",zIndex:2000,whiteSpace:"nowrap",boxShadow:"0 4px 14px rgba(0,0,0,0.22)"}}>{tip.text}</div>}
 
       {/* header */}
-      <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"6px 10px":"8px 20px",display:"flex",alignItems:"center",minHeight:isMobile?52:64,gap:isMobile?6:8,flexWrap:"nowrap",position:"sticky",top:0,zIndex:100,width:"100%",overflow:"hidden"}}>
+      <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"6px 10px":"8px 20px",display:"flex",alignItems:"center",minHeight:isMobile?52:64,gap:isMobile?6:8,flexWrap:"nowrap",flexShrink:0,width:"100%",overflow:"hidden"}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
           <div style={{width:isMobile?38:46,height:isMobile?38:46,borderRadius:"50%",background:"#fff",border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}>
             <img src={WCP_LOGO} alt="WCP" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
@@ -397,38 +425,38 @@ export default function App(){
         </div>
         <div style={{display:"flex",gap:isMobile?4:6,alignItems:"center",flex:1,minWidth:0,justifyContent:"center",overflow:"hidden"}}>
           {[{id:"all",l:isMobile?"All":"All Locations"},{id:"loc1",l:isMobile?"L1":data.locations.loc1},{id:"loc2",l:isMobile?"L2":data.locations.loc2}].map(l=>(
-            <button key={l.id} onClick={()=>setLoc(l.id)} title={l.id==="all"?"All Locations":l.id==="loc1"?data.locations.loc1:data.locations.loc2} style={{background:loc===l.id?T.blue:"transparent",border:`1.5px solid ${loc===l.id?T.blue:T.border}`,color:loc===l.id?"#fff":T.slate,padding:isMobile?"4px 10px":"5px 14px",borderRadius:24,fontSize:isMobile?11:13,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>{l.l}</button>
+            <button key={l.id} onClick={()=>setLoc(l.id)} {...tipBelow(l.id==="all"?"All Locations":l.id==="loc1"?data.locations.loc1:data.locations.loc2)} style={{background:loc===l.id?T.blue:"transparent",border:`1.5px solid ${loc===l.id?T.blue:T.border}`,color:loc===l.id?"#fff":T.slate,padding:isMobile?"4px 10px":"5px 14px",borderRadius:24,fontSize:isMobile?11:13,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>{l.l}</button>
           ))}
         </div>
         <div style={{display:"flex",gap:isMobile?4:8,alignItems:"center",flexShrink:0}}>
-          <button onClick={()=>{setTab("insights");if(!loadingInsights)generateInsights();}} title={insightsStale?"New data — refresh AI insights":"Refresh AI insights"} aria-label="Refresh AI insights" style={{position:"relative",background:"none",border:`1px solid ${T.border}`,borderRadius:"50%",width:isMobile?32:34,height:isMobile?32:34,color:insightsStale?T.blue:T.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
+          <button onClick={()=>{setTab("insights");if(!loadingInsights)generateInsights();}} {...tipBelow(insightsStale?"New data — refresh AI insights":"Refresh AI insights")} aria-label="Refresh AI insights" style={{position:"relative",background:"none",border:`1px solid ${T.border}`,borderRadius:"50%",width:isMobile?32:34,height:isMobile?32:34,color:insightsStale?T.blue:T.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
             <HdrIcon id="refresh" size={isMobile?17:18}/>
             {insightsStale&&<span style={{position:"absolute",top:-2,right:-2,width:9,height:9,borderRadius:"50%",background:T.coral,border:`2px solid ${T.card}`}}/>}
           </button>
-          <button onClick={()=>setTab("scan")} title="Scan receipt" aria-label="Scan receipt" style={{background:T.blue,border:"none",borderRadius:20,padding:isMobile?"6px 8px":"7px 16px",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}><HdrIcon id="camera" size={isMobile?18:18}/>{!isMobile&&<span>Scan receipt</span>}</button>
-          <button onClick={()=>setDark(v=>!v)} aria-label={dark?"Switch to light mode":"Switch to dark mode"} title={dark?"Light mode":"Dark mode"} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:"50%",width:isMobile?32:34,height:isMobile?32:34,color:T.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}><HdrIcon id={dark?"sun":"moon"} size={isMobile?17:18}/></button>
-          <button onClick={signOut} title={session.user?.email} aria-label="Sign out" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.muted,padding:isMobile?"5px 8px":"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}><HdrIcon id="signout" size={isMobile?17:18}/>{!isMobile&&<span>Sign out</span>}</button>
+          <button onClick={()=>setTab("scan")} {...tipBelow("Scan receipt")} aria-label="Scan receipt" style={{background:T.blue,border:"none",borderRadius:20,padding:isMobile?"6px 8px":"7px 16px",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}><HdrIcon id="camera" size={isMobile?18:18}/>{!isMobile&&<span>Scan receipt</span>}</button>
+          <button onClick={()=>setDark(v=>!v)} aria-label={dark?"Switch to light mode":"Switch to dark mode"} {...tipBelow(dark?"Light mode":"Dark mode")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:"50%",width:isMobile?32:34,height:isMobile?32:34,color:T.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}><HdrIcon id={dark?"sun":"moon"} size={isMobile?17:18}/></button>
+          <button onClick={signOut} {...tipBelow(session.user?.email||"Sign out")} aria-label="Sign out" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.muted,padding:isMobile?"5px 8px":"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}><HdrIcon id="signout" size={isMobile?17:18}/>{!isMobile&&<span>Sign out</span>}</button>
         </div>
       </div>
 
       {activeAlerts.length>0&&(
-        <div style={{background:T.coralL,borderBottom:`1px solid ${T.coral}33`,padding:isMobile?"9px 14px":"9px 28px",display:"flex",alignItems:"center",gap:10,fontSize:isMobile?12:14}}>
+        <div style={{background:T.coralL,borderBottom:`1px solid ${T.coral}33`,padding:isMobile?"9px 14px":"9px 28px",display:"flex",alignItems:"center",gap:10,fontSize:isMobile?12:14,flexShrink:0}}>
           <span>🔺</span><span style={{color:T.coral,fontWeight:700}}>Price alert:</span>
           <span style={{color:T.slate,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{activeAlerts.map(([i])=>i).join(" · ")}</span>
           <button onClick={()=>setTab("menu")} style={{marginLeft:"auto",background:"none",border:`1px solid ${T.coral}`,borderRadius:20,color:T.coral,padding:"3px 10px",fontSize:12,cursor:"pointer",fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>Review →</button>
         </div>
       )}
 
-      <div style={{display:"flex",alignItems:"stretch"}}>
-        <div style={{width:isMobile?54:64,flexShrink:0,background:T.card,borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column",alignItems:"center",gap:4,paddingTop:14,position:"sticky",top:0,alignSelf:"flex-start",height:"100vh",paddingBottom:80}}>
+      <div style={{display:"flex",alignItems:"stretch",flex:1,minHeight:0,overflow:"hidden"}}>
+        <div style={{width:isMobile?54:64,flexShrink:0,background:T.card,borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column",alignItems:"center",gap:4,paddingTop:14,paddingBottom:20,height:"100%",overflowY:"auto"}}>
           {TABS.map(t=>(
-            <button key={t.id} onClick={()=>setTab(t.id)} title={t.label} aria-label={t.label} style={{position:"relative",width:isMobile?40:46,height:isMobile?40:46,borderRadius:12,background:tab===t.id?T.blueL:"transparent",border:tab===t.id?`1.5px solid ${T.blue}44`:"1.5px solid transparent",color:tab===t.id?T.blue:T.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>
+            <button key={t.id} onClick={()=>setTab(t.id)} {...tipRight(t.label)} aria-label={t.label} style={{position:"relative",width:isMobile?40:46,height:isMobile?40:46,borderRadius:12,background:tab===t.id?T.blueL:"transparent",border:tab===t.id?`1.5px solid ${T.blue}44`:"1.5px solid transparent",color:tab===t.id?T.blue:T.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>
               <NavIcon id={t.id} size={isMobile?19:22}/>
               {t.id==="insights"&&insightsStale&&<span style={{position:"absolute",top:5,right:5,width:7,height:7,borderRadius:"50%",background:T.coral}}/>}
             </button>
           ))}
         </div>
-        <div style={{flex:1,minWidth:0}}>
+        <div style={{flex:1,minWidth:0,height:"100%",overflowY:"auto"}}>
       <div style={{padding:isMobile?"16px":"28px 32px",maxWidth:MAXW,margin:"0 auto"}}>
         {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice}}/>}
         {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedPrice,priceFor,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,market}}/>}
@@ -603,6 +631,14 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
   const [mIng,setMIng]=useState("");const [mPrice,setMPrice]=useState("");const [mUnit,setMUnit]=useState("lb");const [mSup,setMSup]=useState("");const [mDate,setMDate]=useState(new Date().toISOString().slice(0,10));
   const [mSaving,setMSaving]=useState(false);
   const [thrEdit,setThrEdit]=useState("");
+  const [ren,setRen]=useState("");
+  const [mergeInto,setMergeInto]=useState("");
+  const [recipePick,setRecipePick]=useState(null);
+  const [recipeSel,setRecipeSel]=useState({});
+  const [busy,setBusy]=useState(false);
+  const SZ3=["small","medium","large"];
+  const recipesUsing=(ing)=>Object.keys(data.menu).filter(n=>SZ3.some(sz=>data.menu[n].ing?.[sz]?.[ing]!=null));
+  const allIngNames=[...new Set([...CATALOG.map(c=>c.name),...Object.keys(data.ingredients)])].sort((a,b)=>a.localeCompare(b));
   const formRef=useRef(null);const priceRef=useRef(null);
   const openAdd=(name)=>{
     setShowAdd(true);
@@ -636,6 +672,48 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
     const v=thrEdit===""?null:parseFloat(thrEdit);
     try{await saveAlert(name,v);await reload();say(v===null?"Alert removed":`Alert set at $${v}`);}
     catch(e){say("Save failed",true);}
+  };
+  // Repoint an ingredient to another name across prices, recipes, and alerts.
+  // Target that already exists = merge (history + recipe refs combine); new target = rename.
+  const repoint=async(oldName,newName,isMerge)=>{
+    newName=(newName||"").trim();
+    if(!newName||newName===oldName){setRen("");setMergeInto("");return;}
+    setBusy(true);
+    try{
+      await renameIngredientInPrices(oldName,newName);
+      for(const [mn,m] of Object.entries(data.menu)){
+        let changed=false;const ing=JSON.parse(JSON.stringify(m.ing||{}));
+        SZ3.forEach(sz=>{if(ing[sz]&&ing[sz][oldName]!=null){const q=ing[sz][oldName];delete ing[sz][oldName];if(ing[sz][newName]==null)ing[sz][newName]=q;changed=true;}});
+        if(changed)await saveMenuItem(mn,m.sizes,ing,m.category);
+      }
+      if(data.alerts[oldName]!=null){if(data.alerts[newName]==null)await saveAlert(newName,data.alerts[oldName]);await saveAlert(oldName,null);}
+      await reload();
+      setSelIng(newName);setRen("");setMergeInto("");
+      say(isMerge?`Merged into ${newName}`:`Renamed to ${newName}`);
+    }catch(e){console.error(e);say("Update failed",true);}
+    setBusy(false);
+  };
+  const startRename=(oldName)=>{
+    const nn=(ren||"").trim();if(!nn||nn===oldName){setRen("");return;}
+    const exists=allIngNames.includes(nn);
+    if(exists&&!window.confirm(`"${nn}" already exists — this merges ${oldName} into it (price history and recipe use combine, ${oldName} removed). Continue?`))return;
+    repoint(oldName,nn,exists);
+  };
+  const doAddToRecipe=async(ing)=>{
+    const chosen=Object.keys(recipeSel).filter(k=>recipeSel[k]);
+    if(!chosen.length)return;
+    setBusy(true);
+    try{
+      const def={small:0.08,medium:0.1,large:0.125};
+      for(const mn of chosen){
+        const m=data.menu[mn];const ing2=JSON.parse(JSON.stringify(m.ing||{small:{},medium:{},large:{}}));
+        SZ3.forEach(sz=>{ing2[sz]=ing2[sz]||{};if(ing2[sz][ing]==null)ing2[sz][ing]=def[sz];});
+        await saveMenuItem(mn,m.sizes,ing2,m.category);
+      }
+      await reload();setRecipePick(null);setRecipeSel({});
+      say(`Added to ${chosen.length} bowl${chosen.length>1?"s":""} · fine-tune grams in Menu`);
+    }catch(e){console.error(e);say("Update failed",true);}
+    setBusy(false);
   };
   return(
     <div>
@@ -682,7 +760,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
                         return(
                           <div key={name} style={{borderBottom:last&&!isSel?"none":`1px solid ${T.border}`}}>
                             <div onClick={()=>setSelIng(isSel?null:name)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",cursor:"pointer",background:isSel?T.blueL:"transparent"}}>
-                              <div style={{flex:1,fontSize:13,fontWeight:600}}>{name}{ov&&<span style={{marginLeft:6,fontSize:11,color:T.coral}}>{"\u26a0"}</span>}</div>
+                              <div style={{flex:1,fontSize:13,fontWeight:600}}>{name}{ov&&<span style={{marginLeft:6,fontSize:11,color:T.coral}}>{"\u26a0"}</span>}{recipesUsing(name).length===0&&<span title="Not in any bowl — won't affect food cost" style={{marginLeft:8,fontSize:10,fontWeight:700,color:T.amber,background:T.amberL,border:`1px solid ${T.amber}44`,padding:"1px 7px",borderRadius:10,whiteSpace:"nowrap"}}>not in a bowl</span>}</div>
                               <div style={{fontSize:12,color:T.muted}}>{entries[entries.length-1]?.supplier}</div>
                               <div style={{fontSize:13,fontWeight:700,width:88,textAlign:"right"}}>${fmt(lat)}<span style={{fontSize:10,color:T.muted,fontWeight:400}}>/{entries[0]?.unit}</span></div>
                               <div style={{fontSize:12,fontWeight:700,color:ch>0?T.coral:T.teal,width:52,textAlign:"right"}}>{ch>0?"+":""}{ch.toFixed(1)}%</div>
@@ -724,6 +802,36 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
                                   <button onClick={()=>saveThr(name)} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Set alert</button>
                                   <button onClick={()=>delIng(name)} style={{marginLeft:"auto",background:"none",border:`1px solid ${T.coral}55`,borderRadius:16,color:T.coral,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Delete ingredient</button>
                                 </div>
+                                {(()=>{const used=recipesUsing(name);const inRecipe=used.length>0;const opts=Object.keys(data.menu).filter(mn=>data.menu[mn].category!=="drink"&&!used.includes(mn)).sort((a,b)=>a.localeCompare(b));return(
+                                <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
+                                  <div style={{fontSize:11,color:T.muted,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:8}}>Manage ingredient</div>
+                                  <div style={{fontSize:12,color:inRecipe?T.slate:T.amber,marginBottom:10}}>{inRecipe?`In ${used.length} recipe${used.length>1?"s":""}: ${used.join(", ")}`:"Not in any bowl — its price shows in alerts and movers, but won't affect food cost until you add it to a recipe."}</div>
+                                  <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:8}}>
+                                    <input value={ren} onChange={e=>setRen(e.target.value)} placeholder="Rename to…" style={{flex:"1 1 160px",background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 11px",color:T.navy,fontSize:13,outline:"none"}}/>
+                                    <button onClick={()=>startRename(name)} disabled={busy||!ren.trim()} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:busy?"wait":"pointer",opacity:busy||!ren.trim()?0.6:1}}>Rename</button>
+                                    <select value={mergeInto} onChange={e=>setMergeInto(e.target.value)} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 10px",color:T.navy,fontSize:12,outline:"none",maxWidth:180}}><option value="">Merge into…</option>{allIngNames.filter(n=>n!==name).map(n=><option key={n} value={n}>{n}</option>)}</select>
+                                    <button onClick={()=>{if(mergeInto&&window.confirm(`Merge ${name} into ${mergeInto}? Price history and recipe use combine, and ${name} is removed.`))repoint(name,mergeInto,true);}} disabled={busy||!mergeInto} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:16,color:T.slate,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:busy?"wait":"pointer",opacity:busy||!mergeInto?0.6:1}}>Merge</button>
+                                  </div>
+                                  {recipePick===name?(
+                                    <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:12,marginTop:4}}>
+                                      <div style={{fontSize:12,color:T.slate,marginBottom:8}}>Add {name} to these — grams default in, fine-tune later in Menu</div>
+                                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:6,marginBottom:10}}>
+                                        {opts.map(mn=>(
+                                          <label key={mn} style={{display:"flex",alignItems:"center",gap:8,fontSize:13,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 10px",cursor:"pointer",background:recipeSel[mn]?T.blueL:T.card}}>
+                                            <input type="checkbox" checked={!!recipeSel[mn]} onChange={e=>setRecipeSel(s=>({...s,[mn]:e.target.checked}))}/>{mn}
+                                          </label>
+                                        ))}
+                                      </div>
+                                      <div style={{display:"flex",gap:8}}>
+                                        <button onClick={()=>doAddToRecipe(name)} disabled={busy||!Object.values(recipeSel).some(Boolean)} style={{background:T.teal,color:"#fff",border:"none",borderRadius:10,padding:"9px 16px",fontSize:13,fontWeight:800,cursor:busy?"wait":"pointer",opacity:busy||!Object.values(recipeSel).some(Boolean)?0.6:1}}>Add to {Object.values(recipeSel).filter(Boolean).length||""} bowl{Object.values(recipeSel).filter(Boolean).length===1?"":"s"}</button>
+                                        <button onClick={()=>{setRecipePick(null);setRecipeSel({});}} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:10,color:T.muted,padding:"9px 14px",fontSize:13,cursor:"pointer"}}>Cancel</button>
+                                      </div>
+                                    </div>
+                                  ):(
+                                    <button onClick={()=>{setRecipePick(name);setRecipeSel({});}} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Add to recipe</button>
+                                  )}
+                                </div>
+                                );})()}
                                 <div style={{marginTop:16}}>
                                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                                     <div style={{fontSize:14,fontWeight:700}}>Vancouver Market Price Check</div>
@@ -1124,7 +1232,7 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,cBowlRe
   const upRef=useRef(null);
   const MNc=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const monthOptions=(()=>{
-    const opts=[];const now=new Date(2026,6);
+    const opts=[];const now=new Date();
     for(let i=0;i<12;i++){const d=new Date(now.getFullYear(),now.getMonth()-i);opts.push(`${MNc[d.getMonth()]} ${d.getFullYear()}`);}
     return opts;
   })();
@@ -1611,10 +1719,12 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
 
   const updateLine=(i,patch)=>setScanRes(r=>{
     const items=r.items.slice();let it={...items[i],...patch};
-    if(patch.ingredient!==undefined){const m=catalogMatch(it.ingredient);if(m){it.matched=true;it.category=m.cat;it.food=true;}else{it.matched=false;it.food=isCOGSCat(it.category);}}
-    if(patch.category!==undefined&&!it.matched)it.food=isCOGSCat(it.category);
+    if(patch.ingredient!==undefined){const m=catalogMatch(it.ingredient);if(m){it.matched=true;it.category=m.cat;it.food=true;it.isNew=false;if(it.state!=="exclude")it.state="food";}else{it.matched=false;it.food=isCOGSCat(it.category);it.tracked=r.items[i]?.tracked&&false;it.isNew=it.food;if(it.state!=="exclude")it.state=it.food?"food":"nonfood";}}
+    if(patch.category!==undefined&&!it.matched){it.food=isCOGSCat(it.category);if(it.state!=="exclude")it.state=it.food?"food":"nonfood";}
     items[i]=it;return {...r,items};
   });
+  const setLineState=(i,st)=>setScanRes(r=>{const items=r.items.slice();items[i]={...items[i],state:st};return {...r,items};});
+  const useBusinessTotal=()=>setScanRes(r=>{const kept=(r.items||[]).filter(it=>it.state!=="exclude");const sum=kept.reduce((s,it)=>s+((parseFloat(it.line_total)||(parseFloat(it.price)||0)*(parseFloat(it.quantity)||0))||0),0);return {...r,invoice_total:Math.round(sum*100)/100};});
   const removeLine=i=>setScanRes(r=>({...r,items:r.items.filter((_,j)=>j!==i)}));
   const setTotal=(k,v)=>setScanRes(r=>({...r,[k]:v===""?null:parseFloat(v)}));
 
@@ -1622,7 +1732,7 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
     const head=["Supplier","Date","Category","Ingredient","Unit price","Unit","Quantity","Line total"];
     if(withFlag)head.push("Counts to food cost");
     const rows=[head];
-    lines.forEach(it=>{const row=[supplier||"Unknown",date||"",it.category||"Other",it.ingredient,it.price,it.unit||"",it.quantity??"",it.line_total??""];if(withFlag)row.push((it.food!==undefined?it.food:isCOGSCat(it.category))?"Yes":"No");rows.push(row);});
+    lines.forEach(it=>{const row=[supplier||"Unknown",date||"",it.category||"Other",it.ingredient,it.price,it.unit||"",it.quantity??"",it.line_total??""];if(withFlag)row.push((it.state?it.state==="food":(it.food!==undefined?it.food:isCOGSCat(it.category)))?"Yes":"No");rows.push(row);});
     return rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
   };
   const download=(name,csv)=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=name;a.click();URL.revokeObjectURL(a.href);};
@@ -1653,7 +1763,8 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
   };
 
   const numInp={width:76,textAlign:"right",background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"7px 8px",color:T.navy,fontSize:13,outline:"none"};
-  const lineSum=(scanRes?.items||[]).reduce((s,it)=>s+((parseFloat(it.line_total)|| (parseFloat(it.price)||0)*(parseFloat(it.quantity)||0))||0),0);
+  const lineSum=(scanRes?.items||[]).filter(it=>it.state!=="exclude").reduce((s,it)=>s+((parseFloat(it.line_total)|| (parseFloat(it.price)||0)*(parseFloat(it.quantity)||0))||0),0);
+  const hasExcluded=(scanRes?.items||[]).some(it=>it.state==="exclude");
 
   return(
     <div style={{maxWidth:scanRes&&!scanning?820:640,margin:"0 auto"}}>
@@ -1690,21 +1801,30 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
             <div style={{...card,borderColor:T.amber}}>
               <div style={{fontSize:isMobile?16:18,fontWeight:800,marginBottom:2}}>Review &amp; correct</div>
               <div style={{fontSize:13,color:T.muted,marginBottom:12}}>{scanRes.supplier} · {scanRes.date} · {scanRes.items?.length} lines</div>
-              <div style={{background:T.amberL,border:`1px solid ${T.amber}44`,borderRadius:10,padding:"10px 12px",fontSize:12.5,color:T.slate,lineHeight:1.6,marginBottom:14}}>⚠ Check every line before accepting — fix shortened names, wrong categories, or discounted prices the AI misread. <strong>Once you accept, this can't be edited</strong> — you'd re-scan the receipt.</div>
+              <div style={{background:T.amberL,border:`1px solid ${T.amber}44`,borderRadius:10,padding:"10px 12px",fontSize:12.5,color:T.slate,lineHeight:1.6,marginBottom:14}}>⚠ Check every line before accepting — fix shortened names, wrong categories, or discounted prices the AI misread. Set anything unrelated to the business to <strong>Exclude</strong>. <strong>Once you accept, this can't be edited</strong> — you'd re-scan the receipt.</div>
 
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1.6fr 1.3fr 0.9fr 0.7fr auto",gap:8,alignItems:"center",fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px",padding:"0 2px 6px"}}>
-                <div>Ingredient</div>{!isMobile&&<><div>Category</div><div style={{textAlign:"right"}}>Unit price</div><div style={{textAlign:"right"}}>Qty</div><div/></>}
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1.5fr 1.1fr 0.8fr 0.6fr 1.3fr auto",gap:8,alignItems:"center",fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px",padding:"0 2px 6px"}}>
+                <div>Ingredient</div>{!isMobile&&<><div>Category</div><div style={{textAlign:"right"}}>Unit price</div><div style={{textAlign:"right"}}>Qty</div><div>Treatment</div><div/></>}
               </div>
-              {scanRes.items?.map((it,i)=>{const food=it.food!==undefined?it.food:isCOGSCat(it.category);return(
-                <div key={i} style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1.6fr 1.3fr 0.9fr 0.7fr auto",gap:8,alignItems:"center",padding:"7px 2px",borderBottom:`1px solid ${T.border}`}}>
-                  <input value={it.ingredient} onChange={e=>updateLine(i,{ingredient:e.target.value})} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 10px",color:T.navy,fontSize:13,outline:"none",width:"100%"}}/>
+              {scanRes.items?.map((it,i)=>{const st=it.state||(it.food?"food":"nonfood");const excl=st==="exclude";const isNew=it.isNew&&!it.matched&&!it.tracked&&st==="food";return(
+                <div key={i} style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1.5fr 1.1fr 0.8fr 0.6fr 1.3fr auto",gap:8,alignItems:"center",padding:"7px 2px",borderBottom:`1px solid ${T.border}`,opacity:excl?0.45:1}}>
+                  <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                    <input value={it.ingredient} onChange={e=>updateLine(i,{ingredient:e.target.value})} style={{background:T.bg,border:`1px solid ${isNew?T.amber:T.border}`,borderRadius:8,padding:"8px 10px",color:T.navy,fontSize:13,outline:"none",width:"100%"}}/>
+                    {isNew&&<span style={{fontSize:10,color:T.amber,fontWeight:700}}>new — keep as Food to add it, or Exclude to skip</span>}
+                    {it.tracked&&!it.matched&&<span style={{fontSize:10,color:T.muted}}>matches a tracked ingredient</span>}
+                  </div>
                   <div style={{display:"flex",alignItems:"center",gap:6}}>
                     {it.matched
                       ?<span title="Matched to your ingredient catalogue" style={{fontSize:11,fontWeight:700,color:T.teal,background:T.tealL,border:`1px solid ${T.teal}44`,padding:"6px 10px",borderRadius:8,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>✓ {it.category}</span>
-                      :<select value={RECEIPT_CATS.includes(it.category)?it.category:"Other"} onChange={e=>updateLine(i,{category:e.target.value})} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 8px",color:food?T.navy:T.muted,fontSize:12,outline:"none",width:"100%"}}>{RECEIPT_CATS.map(c=><option key={c} value={c}>{c}{isCOGSCat(c)?"":" · not food"}</option>)}</select>}
+                      :<select value={RECEIPT_CATS.includes(it.category)?it.category:"Other"} onChange={e=>updateLine(i,{category:e.target.value})} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 8px",color:T.navy,fontSize:12,outline:"none",width:"100%"}}>{RECEIPT_CATS.map(c=><option key={c} value={c}>{c}{isCOGSCat(c)?"":" · not food"}</option>)}</select>}
                   </div>
                   <input type="number" inputMode="decimal" value={it.price??""} onChange={e=>updateLine(i,{price:parseFloat(e.target.value)||0})} style={{...numInp,width:isMobile?"100%":numInp.width}}/>
                   <input type="number" inputMode="decimal" value={it.quantity??""} onChange={e=>updateLine(i,{quantity:e.target.value===""?null:parseFloat(e.target.value)})} style={{...numInp,width:isMobile?"100%":numInp.width}}/>
+                  <div style={{display:"flex",gap:2,background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:2}}>
+                    {[["food","Food",T.teal],["nonfood","Non-food",T.slate],["exclude","Exclude",T.coral]].map(([v,lb,c])=>(
+                      <button key={v} onClick={()=>setLineState(i,v)} title={v==="food"?"Tracked in food cost":v==="nonfood"?"Business cost, not food-costed":"Dropped — not saved"} style={{flex:1,background:st===v?c:"transparent",color:st===v?"#fff":T.muted,border:"none",borderRadius:6,padding:"5px 4px",fontSize:10.5,fontWeight:st===v?700:500,cursor:"pointer",whiteSpace:"nowrap"}}>{lb}</button>
+                    ))}
+                  </div>
                   <button onClick={()=>removeLine(i)} aria-label="Remove line" title="Remove line" style={{background:"none",border:"none",color:T.coral,fontSize:16,cursor:"pointer",padding:"2px 6px",lineHeight:1}}>×</button>
                 </div>
               );})}
@@ -1718,12 +1838,18 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
                   <div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>INVOICE TOTAL (PAID) $</div>
                   <input type="number" inputMode="decimal" value={scanRes.invoice_total??""} onChange={e=>setTotal("invoice_total",e.target.value)} placeholder="0.00" style={{...numInp,width:"100%",textAlign:"left"}}/>
                 </div>
-                <div style={{fontSize:11,color:T.muted,paddingBottom:8}}>Line items sum ≈ <strong style={{color:T.slate}}>${fmt(lineSum)}</strong></div>
+                <div style={{fontSize:11,color:T.muted,paddingBottom:8}}>Kept lines sum ≈ <strong style={{color:T.slate}}>${fmt(lineSum)}</strong></div>
               </div>
+              {hasExcluded&&(
+                <div style={{marginTop:10,background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px",fontSize:12,color:T.slate,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <span>This receipt has excluded lines, so the printed total includes items that aren't the business's.</span>
+                  <button onClick={useBusinessTotal} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Use business-only total (${fmt(lineSum)})</button>
+                </div>
+              )}
 
               <div style={{display:"flex",gap:10,marginTop:16,flexWrap:"wrap"}}>
                 <button onClick={()=>okScan()} style={{flex:"2 1 180px",background:T.teal,color:"#fff",border:"none",borderRadius:12,padding:isMobile?"13px":"15px",fontSize:isMobile?14:16,cursor:"pointer",fontWeight:800}}>Accept &amp; save</button>
-                <button onClick={()=>download(`parsed-receipt-${(scanRes.supplier||"receipt").replace(/\s+/g,"-")}-${scanRes.date||""}.csv`,csvFromLines(scanRes.supplier,scanRes.date,scanRes.items||[],true))} style={{flex:"1 1 130px",background:T.blueL,border:`1px solid ${T.border}`,borderRadius:12,color:T.blue,padding:isMobile?"13px":"15px",fontSize:13,fontWeight:700,cursor:"pointer"}}>⬇ Parsed CSV</button>
+                <button onClick={()=>download(`parsed-receipt-${(scanRes.supplier||"receipt").replace(/\s+/g,"-")}-${scanRes.date||""}.csv`,csvFromLines(scanRes.supplier,scanRes.date,(scanRes.items||[]).filter(it=>it.state!=="exclude"),true))} style={{flex:"1 1 130px",background:T.blueL,border:`1px solid ${T.border}`,borderRadius:12,color:T.blue,padding:isMobile?"13px":"15px",fontSize:13,fontWeight:700,cursor:"pointer"}}>⬇ Parsed CSV</button>
                 <button onClick={()=>{setScanRes(null);setImg(null);}} style={{flex:"0 1 90px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:12,color:T.muted,padding:isMobile?"13px":"15px",fontSize:13,cursor:"pointer"}}>Discard</button>
               </div>
             </div>

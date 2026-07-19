@@ -128,6 +128,12 @@ export async function loadReceipts() {
 
 // Full cascade: removes the receipt row AND the ingredient_prices lines it created
 // (matched by supplier + date — the fingerprint basis). Trends/MCA recalculate.
+export async function deleteReceiptByKey(supplier, date) {
+  if (!supplier || !date) return;
+  await supabase.from("ingredient_prices").delete().eq("supplier", supplier).eq("date", date);
+  await supabase.from("receipts").delete().eq("supplier", supplier).eq("date", date);
+}
+
 export async function deleteReceiptCascade(receipt) {
   const { supplier, date, id } = receipt;
   if (supplier && date) {
@@ -182,6 +188,13 @@ export async function saveSetting(key, value) {
 
 export async function deleteMenuItem(name) {
   const { error } = await supabase.from("menu_items").delete().eq("name", name);
+  if (error) throw error;
+}
+
+// Repoint every price row from one ingredient name to another.
+// New name that doesn't exist yet = rename; existing name = merge (price history combines).
+export async function renameIngredientInPrices(oldName, newName) {
+  const { error } = await supabase.from("ingredient_prices").update({ ingredient: newName }).eq("ingredient", oldName);
   if (error) throw error;
 }
 
