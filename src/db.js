@@ -253,7 +253,7 @@ export async function loadMarketChecks() {
 // ─── Daily usage caps (item 11): one row per action per day, shared org-wide ─
 // Daily caps per AI action, shared org-wide. TEMPORARY: discovery + preferred_refresh
 // raised to 10/day for testing — pull back to 1 before launch.
-const DAILY_CAPS = { price_check: 1, discovery: 10, preferred_refresh: 10 };
+const DAILY_CAPS = { price_check: 10, discovery: 10, preferred_refresh: 10 };
 export async function canRunToday(action) {
   const today = new Date().toISOString().slice(0, 10);
   const limit = DAILY_CAPS[action] ?? 1;

@@ -337,6 +337,7 @@ export default function App(){
     try{
       const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:800,tools:[{type:"web_search_20250305",name:"web_search",max_uses:2}],messages:[{role:"user",content:`Search current price of "${ing}" per ${unit} ${where}. Return ONLY JSON no markdown: {"marketRange":{"low":0.00,"high":0.00},"sources":[{"store":"Name","price":0.00,"url":"real page URL or empty string","notes":"brief"}],"verdict":"good|high|very_high","recommendation":"one actionable sentence"}. Every source MUST include the real url of the page the price came from; if you cannot verify a price with a real page, omit it. No data: {"error":"No reliable price data"}`}]})});
       const out=await r.json();
+      if(!r.ok){setChecks(p=>({...p,[ing]:{status:"err",msg:(out?.error?.message||`API error ${r.status}`).slice(0,120)}}));setChkIng(null);return;}
       const parsed=pickJson(out);
       if(parsed.error)setChecks(p=>({...p,[ing]:{status:"err",msg:parsed.error}}));
       else{
@@ -2111,7 +2112,7 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,loadingInsigh
 
 // ─── MENU / RECIPE EDITOR ──────────────────────────────────────────────────────────
 function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedPrice,priceFor,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,market}){
-  const [sub,setSub]=useState(selIng?"ingredients":"recipes");
+  const [sub,setSub]=useState("ingredients");
   const [histMonth,setHistMonth]=useState("live");
   const [sel,setSel]=useState(null);
   const [draft,setDraft]=useState(null); // {sizes:{small,medium,large}, ing:{small:{},medium:{},large:{}}}
