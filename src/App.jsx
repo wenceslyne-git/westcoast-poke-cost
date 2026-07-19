@@ -11,7 +11,7 @@ const API_HEADERS = () => ({
   "anthropic-version":"2023-06-01",
   "anthropic-dangerous-direct-browser-access":"true",
 });
-const MODEL="claude-sonnet-4-6";
+const MODEL="claude-haiku-4-5-20251001"; // TESTING: cheapest model for MVP cost trial — revert to "claude-sonnet-4-6" if scan/insights quality drops
 // TEMPORARY: 6 web searches per discovery run while testing (reaches toward 25 results).
 // Pull back to 2 before launch to cap per-click cost (~$0.02).
 const DISCOVERY_MAX_USES=6;
