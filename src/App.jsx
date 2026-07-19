@@ -863,7 +863,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
                             </div>
                             {isSel&&(
                               <div onClick={e=>e.stopPropagation()} style={{padding:"6px 16px 18px"}}>
-                                <PriceChart data={entries} T={T}/>
+                                <PriceChart data={entries} T={T} market={market[name]}/>
                                 <div style={{marginTop:12}}>
                                   {entries.map((e,i)=>(
                                     <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,fontSize:13,color:T.muted,padding:"5px 0",borderBottom:`1px solid ${T.border}`}}>
