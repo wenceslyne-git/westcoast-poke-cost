@@ -144,7 +144,29 @@ export async function deleteReceiptCascade(receipt) {
   if (rErr) throw rErr;
 }
 
-// ─── Manual entry, edits & deletes ──────────────────────────────────────────
+// ─── Discovered suppliers catalog (item 7) ──────────────────────────────────
+// Every discovery run banks its results here so a paid search is never wasted.
+// Deduped on a normalized name+city+street key so chain branches stay distinct
+// but re-discoveries just refresh last_seen instead of piling up duplicates.
+export async function loadDiscovered() {
+  const { data, error } = await supabase.from("discovered_suppliers").select("*").order("name", { ascending: true });
+  if (error) return [];
+  return (data || []).map(r => ({
+    id: r.id, name: r.name, website: r.website || "", city: r.city || "", street: r.street || "",
+    firstSeen: r.first_seen, lastSeen: r.last_seen,
+  }));
+}
+export async function saveDiscovered(rows) {
+  if (!rows || !rows.length) return;
+  const payload = rows.map(r => ({
+    name: r.name, website: r.website || "", city: r.city || "", street: r.street || "",
+    dedup_key: r.dedup_key, last_seen: new Date().toISOString(),
+  }));
+  // first_seen not sent → preserved on update, defaults to now() on insert
+  const { error } = await supabase.from("discovered_suppliers").upsert(payload, { onConflict: "dedup_key" });
+  if (error) throw error;
+}
+
 export async function addPrice(ingredient, price, unit, supplier, date) {
   const { error } = await supabase.from("ingredient_prices").insert({ ingredient, price, unit, supplier, date });
   if (error) throw error;

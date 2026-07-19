@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { LIGHT, DARK, DATA, gL, gPct, fmt, fmtK, useBreakpoint, Spark, PriceChart, WCP_LOGO, ADDONS, CATALOG } from "./data.jsx";
 import { supabase, isOwner } from "./supabase.js";
-import { loadAll, seedIfEmpty, saveReceipt, saveSales, addPrice, deletePriceEntry, deleteIngredient, deleteSupplier, upsertSupplier, saveMenuItem, deleteMenuItem, resyncMenu, saveAlert, saveMarketChecks, loadMarketChecks, canRunToday, recordRun, loadSetting, saveSetting, scansThisMonth, recordScan, loadReceipts, deleteReceiptCascade, deleteReceiptByKey } from "./db.js";
+import { loadAll, seedIfEmpty, saveReceipt, saveSales, addPrice, deletePriceEntry, deleteIngredient, deleteSupplier, upsertSupplier, saveMenuItem, deleteMenuItem, resyncMenu, saveAlert, saveMarketChecks, loadMarketChecks, canRunToday, recordRun, loadSetting, saveSetting, scansThisMonth, recordScan, loadReceipts, deleteReceiptCascade, deleteReceiptByKey, renameIngredientInPrices, loadDiscovered, saveDiscovered } from "./db.js";
 import Login from "./Login.jsx";
 import * as XLSX from "xlsx";
 
@@ -12,6 +12,16 @@ const API_HEADERS = () => ({
   "anthropic-dangerous-direct-browser-access":"true",
 });
 const MODEL="claude-sonnet-4-6";
+// TEMPORARY: 6 web searches per discovery run while testing (reaches toward 25 results).
+// Pull back to 2 before launch to cap per-click cost (~$0.02).
+const DISCOVERY_MAX_USES=6;
+// Dedup key for the discovered-suppliers catalog: name + city + normalized street,
+// so chain branches with different streets stay distinct but re-discoveries collapse.
+const normStreet=s=>String(s||"").toLowerCase()
+  .replace(/\bavenue\b/g,"ave").replace(/\bstreet\b/g,"st").replace(/\broad\b/g,"rd").replace(/\bboulevard\b/g,"blvd")
+  .replace(/\bwest\b/g,"w").replace(/\beast\b/g,"e").replace(/\bnorth\b/g,"n").replace(/\bsouth\b/g,"s")
+  .replace(/[^a-z0-9]/g,"");
+const dedupKey=(name,city,street)=>[String(name||"").toLowerCase().trim(),String(city||"").toLowerCase().trim(),normStreet(street)].join("|");
 
 // Extract the model's JSON from an API response. With the web-search tool the content
 // array holds several blocks ([preamble text] → [tool use] → [tool result] → [final JSON text]),
@@ -437,7 +447,7 @@ export default function App(){
           </div>}
         </div>
         <div style={{display:"flex",gap:isMobile?4:6,alignItems:"center",flex:1,minWidth:0,justifyContent:"center",overflow:"hidden"}}>
-          {[{id:"all",l:isMobile?"All":"All Locations"},{id:"loc1",l:isMobile?"L1":data.locations.loc1},{id:"loc2",l:isMobile?"L2":data.locations.loc2}].map(l=>(
+          {(tab==="dashboard"||tab==="sales")&&[{id:"all",l:isMobile?"All":"All Locations"},{id:"loc1",l:isMobile?"L1":data.locations.loc1},{id:"loc2",l:isMobile?"L2":data.locations.loc2}].map(l=>(
             <button key={l.id} onClick={()=>setLoc(l.id)} {...tipBelow(l.id==="all"?"All Locations":l.id==="loc1"?data.locations.loc1:data.locations.loc2)} style={{background:loc===l.id?T.blue:"transparent",border:`1.5px solid ${loc===l.id?T.blue:T.border}`,color:loc===l.id?"#fff":T.slate,padding:isMobile?"4px 10px":"5px 14px",borderRadius:24,fontSize:isMobile?11:13,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>{l.l}</button>
           ))}
         </div>
@@ -471,7 +481,7 @@ export default function App(){
         </div>
         <div style={{flex:1,minWidth:0,height:"100%",overflowY:"auto"}}>
       <div style={{padding:isMobile?"16px":"28px 32px",maxWidth:MAXW,margin:"0 auto"}}>
-        {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice}}/>}
+        {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market}}/>}
         {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedPrice,priceFor,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,market}}/>}
         {tab==="suppliers"&&<Suppliers {...{T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,reload}}/>}
         {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,cBowlRev,cOtherRev,bowlUnits,bowlUnitsTotal,sizeAgg,totalBowls,costSz,isBowl,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,bFCP,bMargin,months,say,onSaveSales:async(month,l1,l2,mix)=>{
@@ -493,7 +503,7 @@ export default function App(){
 }
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
-function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice}){
+function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market={}}){
   const h=headline;
   return(
     <div>
@@ -568,37 +578,47 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
         )}
 
         <div style={card}>
-          <div style={{fontSize:isMobile?15:17,fontWeight:700,marginBottom:4}}>Best price today</div>
-          <div style={{fontSize:12,color:T.muted,marginBottom:14}}>Cheapest known supplier per ingredient · date shows how fresh the price is</div>
-          {Object.keys(data.ingredients).length===0&&(
-            <div style={{textAlign:"center",padding:"24px 12px",color:T.muted}}>
-              <div style={{fontSize:30,marginBottom:8}}>🧾</div>
-              <div style={{fontSize:13,fontWeight:700,color:T.slate,marginBottom:4}}>No prices recorded yet</div>
-              <div style={{fontSize:12,lineHeight:1.6}}>Scan your first receipt and the cheapest supplier for every ingredient appears here.</div>
-            </div>
-          )}
-          <div style={{maxHeight:340,overflowY:"auto"}}>
-            {Object.entries(data.ingredients).map(([ing,entries],i,arr)=>{
-              const bySup={};
-              entries.forEach(e=>{bySup[e.supplier]=e;});
-              const best=Object.values(bySup).sort((a,b)=>a.price-b.price)[0];
-              if(!best)return null;
-              const age=Math.floor((Date.now()-new Date(best.date).getTime())/86400000);
-              const stale=age>14;
-              return(
-                <div key={ing} onClick={()=>{setSelIng(ing);setTab("menu");}} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:i<arr.length-1?`1px solid ${T.border}`:"none",cursor:"pointer"}}>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:isMobile?13:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ing}</div>
-                    <div style={{fontSize:11,color:T.muted}}>{best.supplier}</div>
-                  </div>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:isMobile?13:15,fontWeight:800,color:T.teal}}>${fmt(best.price)}<span style={{fontSize:10,color:T.muted,fontWeight:400}}>/{best.unit}</span></div>
-                    <div style={{fontSize:10,color:stale?T.amber:T.muted}}>{stale?`⚠ ${age}d old`:best.date}</div>
-                  </div>
-                </div>
-              );
-            })}
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+            <div style={{fontSize:isMobile?15:17,fontWeight:700}}>Best price today</div>
+            <Tag c={T.amber} bg={T.amberL} sm>LIVE · ADVISORY</Tag>
           </div>
+          <div style={{fontSize:12,color:T.muted,marginBottom:14,lineHeight:1.6}}>Live cheapest price found online at your preferred suppliers, from your latest price checks. Indicative only — <strong>confirm with the supplier before ordering; don't rely on this alone.</strong> Tap ↗ to open the source page the price came from. Populate or refresh via Menu → Ingredients → Check prices.</div>
+          {(()=>{
+            const rows=Object.entries(market||{}).map(([ing,checks])=>{
+              const verified=(checks||[]).filter(c=>c.url&&/^https?:\/\//.test(c.url)&&Number(c.price)>0);
+              if(!verified.length)return null;
+              const best=verified.slice().sort((a,b)=>Number(a.price)-Number(b.price))[0];
+              return {ing,...best};
+            }).filter(Boolean).sort((a,b)=>a.ing.localeCompare(b.ing));
+            if(!rows.length)return(
+              <div style={{textAlign:"center",padding:"24px 12px",color:T.muted}}>
+                <div style={{fontSize:30,marginBottom:8}}>🌐</div>
+                <div style={{fontSize:13,fontWeight:700,color:T.slate,marginBottom:4}}>No live prices yet</div>
+                <div style={{fontSize:12,lineHeight:1.6,marginBottom:14}}>Star your preferred suppliers, then run a price check — the cheapest online price we can source for each ingredient (with its source link) appears here. Nothing is shown unless a real source is found.</div>
+                <button onClick={()=>setTab("menu")} style={{background:T.blue,color:"#fff",border:"none",borderRadius:20,padding:"8px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Go to Ingredients →</button>
+              </div>
+            );
+            return(
+              <div style={{maxHeight:340,overflowY:"auto"}}>
+                {rows.map((r,i)=>{
+                  const age=Math.floor((Date.now()-new Date(r.at).getTime())/86400000);
+                  const stale=age>14;
+                  return(
+                    <div key={r.ing} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:i<rows.length-1?`1px solid ${T.border}`:"none"}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:isMobile?13:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.ing}</div>
+                        <div style={{fontSize:11,color:T.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.source}</div>
+                      </div>
+                      <div style={{textAlign:"right",flexShrink:0}}>
+                        <a href={r.url} target="_blank" rel="noopener noreferrer" title="Open source page" style={{fontSize:isMobile?13:15,fontWeight:800,color:T.blue,textDecoration:"none",whiteSpace:"nowrap"}}>${fmt(r.price)}<span style={{fontSize:10,color:T.muted,fontWeight:400}}>/{r.unit}</span> ↗</a>
+                        <div style={{fontSize:10,color:stale?T.amber:T.muted}}>{isNaN(age)?"":stale?`⚠ ${age}d old`:String(r.at).slice(0,10)}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
 
         <div style={card}>
@@ -922,6 +942,10 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
   const [dResults,setDResults]=useState(null);
   const [refBusy,setRefBusy]=useState(false);
   const [refResults,setRefResults]=useState(null);
+  const [catalog,setCatalog]=useState([]);
+  const [pick,setPick]=useState("");
+  const loadCatalog=async()=>{try{setCatalog(await loadDiscovered());}catch(e){console.error(e);}};
+  useEffect(()=>{loadCatalog();},[]);
   const inp={background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"9px 12px",color:T.navy,fontSize:13,fontFamily:"inherit",outline:"none",width:"100%"};
 
   const now=new Date();
@@ -965,18 +989,25 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
     setDBusy(true);setDResults(null);
     await recordRun("discovery","");
     try{
-      const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:1200,tools:[{type:"web_search_20250305",name:"web_search",max_uses:2}],messages:[{role:"user",content:`Find wholesale/trade food suppliers within ${dRad}km of ${dLoc==="loc1"?"West 8th & Cambie, Vancouver BC":dLoc==="loc2"?"Ironwood Plaza, Richmond BC":"a poke restaurant with locations at West 8th & Cambie Vancouver BC and Ironwood Plaza Richmond BC"}. Measure distance from ${dLoc==="both"?"whichever location is nearer":"that location only"}. Category: ${dCat==="Any"?"seafood, produce or dry goods":dCat}. Prioritise wholesalers and distributors over retail. Return ONLY JSON no markdown: {"suppliers":[{"name":"","category":"","distance":"~Xkm from <location>","address":"","notes":"one line: what they offer, trade terms if known"}]}. Max 6 results. If nothing found: {"suppliers":[]}`}]})});
+      const where=dLoc==="loc1"?"West 8th & Cambie, Vancouver BC":dLoc==="loc2"?"Ironwood Plaza, Richmond BC":"a poke restaurant with locations at West 8th & Cambie Vancouver BC and Ironwood Plaza Richmond BC";
+      const prompt=`Find real wholesale/trade food suppliers within ${dRad}km of ${where}. Measure distance from ${dLoc==="both"?"whichever location is nearer":"that location only"}. Category: ${dCat==="Any"?"seafood, produce or dry goods":dCat}. Prioritise wholesalers and distributors over retail. Return ONLY JSON no markdown: {"suppliers":[{"name":"","category":"","city":"","street":"street address only, or empty","website":"https URL or empty","distance":"~Xkm from <location>","notes":"one line: what they offer, trade terms if known"}]}. Return up to 25 results. Only real, verifiable businesses — do NOT invent entries or pad the list to reach 25, and do NOT repeat the same business twice (a chain with multiple branches is fine only if the street addresses genuinely differ). If nothing found: {"suppliers":[]}`;
+      const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:4000,tools:[{type:"web_search_20250305",name:"web_search",max_uses:DISCOVERY_MAX_USES}],messages:[{role:"user",content:prompt}]})});
       const out=await r.json();
       if(!r.ok){say((out?.error?.message||`API error ${r.status}`).slice(0,140),true);setDBusy(false);return;}
       const parsed=pickJson(out);
-      setDResults(parsed.suppliers||[]);
-      if(!(parsed.suppliers||[]).length)say("No suppliers found — try a wider radius",true);
+      const list=(parsed.suppliers||[]).slice(0,25);
+      setDResults(list);
+      // Bank every result into the discovered-suppliers catalog so the search is never wasted
+      if(list.length){
+        try{await saveDiscovered(list.map(s=>({name:s.name,website:s.website||"",city:s.city||"",street:s.street||"",dedup_key:dedupKey(s.name,s.city,s.street)})));await loadCatalog();}catch(e){console.error(e);}
+      }
+      if(!list.length)say("No suppliers found — try a wider radius",true);
     }catch(e){console.error(e);say("Search failed — try again",true);}
     setDBusy(false);
   };
   const addPreferred=async(r)=>{
     try{
-      await upsertSupplier(r.name,{type:"trade",preferred:true,address:r.address||"",notes:`${r.category||""} · ${r.distance||""} · ${r.notes||""}`.trim()});
+      await upsertSupplier(r.name,{type:"trade",preferred:true,website:r.website||"",address:[r.street,r.city].filter(Boolean).join(", ")||r.address||"",notes:`${r.category||""} · ${r.distance||""} · ${r.notes||""}`.trim()});
       await reload();say(`${r.name} added to preferred`);
     }catch(e){say("Add failed",true);}
   };
@@ -1025,6 +1056,16 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
       {showAdd&&(
         <div style={{...card,marginBottom:14,borderColor:T.blue}}>
           <div style={{fontSize:15,fontWeight:700,marginBottom:12}}>Add a supplier</div>
+          {catalog.length>0&&(
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+              <span style={{fontSize:11,color:T.muted,fontWeight:700}}>PREFILL FROM DISCOVERED</span>
+              <select value={pick} onChange={e=>{const c=catalog.find(x=>String(x.id)===e.target.value);setPick(e.target.value);if(c)setNf(p=>({...p,name:c.name,website:c.website||"",notes:[c.city,c.street].filter(Boolean).join(", ")||p.notes}));}} style={{...inp,width:"auto",minWidth:220}}>
+                <option value="">Pick a discovered supplier…</option>
+                {catalog.map(c=><option key={c.id} value={c.id}>{c.name}{c.city?` — ${c.city}`:""}</option>)}
+              </select>
+              <span style={{fontSize:11,color:T.muted}}>or type below</span>
+            </div>
+          )}
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:8,marginBottom:10}}>
             <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>NAME *</div><input value={nf.name} onChange={e=>setNf(p=>({...p,name:e.target.value}))} style={inp}/></div>
             <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>TYPE</div><select value={nf.type} onChange={e=>setNf(p=>({...p,type:e.target.value}))} style={inp}><option value="trade">Trade account</option><option value="retail">Retail (cash)</option></select></div>
@@ -1042,7 +1083,7 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
 
       <div style={{...card,marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:dResults?12:0}}>
-          <div style={{fontSize:14,fontWeight:700}}>Find new suppliers</div>
+          <div><div style={{fontSize:14,fontWeight:700}}>Find new suppliers</div>{catalog.length>0&&<div style={{fontSize:11,color:T.muted,marginTop:2}}>{catalog.length} supplier{catalog.length!==1?"s":""} already discovered — check the list before spending a new search</div>}</div>
           <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
             <select value={dCat} onChange={e=>setDCat(e.target.value)} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:14,padding:"6px 12px",color:T.navy,fontSize:12,fontWeight:600,outline:"none"}}>
               {["Any","Seafood","Produce","Dry goods"].map(c=><option key={c}>{c}</option>)}
@@ -1053,16 +1094,17 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
             <div style={{display:"flex",gap:2,background:T.bg,border:`1px solid ${T.border}`,borderRadius:14,padding:2}}>
               {[10,20,30].map(r=><button key={r} onClick={()=>setDRad(r)} style={{background:dRad===r?T.blue:"transparent",color:dRad===r?"#fff":T.slate,border:"none",borderRadius:12,padding:"4px 10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{r}km</button>)}
             </div>
-            <button onClick={discover} disabled={dBusy} style={{background:T.blue,color:"#fff",border:"none",borderRadius:16,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer",opacity:dBusy?0.6:1}}>{dBusy?"Searching...":"\ud83d\udd0d Search · ~$0.02 · 1/day"}</button>
+            <button onClick={discover} disabled={dBusy} style={{background:T.blue,color:"#fff",border:"none",borderRadius:16,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer",opacity:dBusy?0.6:1}}>{dBusy?"Searching...":"\ud83d\udd0d Search · up to 25 · ~$0.10 · 1/day"}</button>
           </div>
         </div>
+        <div style={{fontSize:10,color:T.muted,marginTop:dResults?0:8,marginBottom:dResults?8:0}}>Returns up to 25 real suppliers (often fewer exist nearby). Every result is saved to your discovered-suppliers list so the search is never wasted.</div>
         {dResults&&dResults.length>0&&(
           <div style={{borderTop:`1px solid ${T.border}`,paddingTop:8}}>
             {dResults.map((r,i)=>(
               <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"9px 0",borderBottom:i<dResults.length-1?`1px solid ${T.border}`:"none"}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:13,fontWeight:700}}>{r.name}</div>
-                  <div style={{fontSize:11,color:T.muted}}>{[r.category,r.distance,r.notes].filter(Boolean).join(" \u00b7 ")}</div>
+                  <div style={{fontSize:13,fontWeight:700}}>{r.website?<a href={/^https?:\/\//.test(r.website)?r.website:`https://${r.website}`} target="_blank" rel="noopener noreferrer" style={{color:T.blue,textDecoration:"none"}}>{r.name} ↗</a>:r.name}</div>
+                  <div style={{fontSize:11,color:T.muted}}>{[r.category,r.city,r.distance,r.notes].filter(Boolean).join(" \u00b7 ")}</div>
                 </div>
                 {data.suppliers[r.name]
                   ?<Tag c={T.teal} bg={T.tealL} sm>{"\u2713"} In your list</Tag>
@@ -1119,7 +1161,9 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
               <div onClick={()=>setSelSup(isSel?null:name)} style={{display:"grid",gridTemplateColumns:isMobile?"1fr auto auto":"2fr 1fr 1fr 1fr 1fr",gap:8,padding:"12px 16px",cursor:"pointer",background:isSel?T.blueL:"transparent",alignItems:"center"}}>
                 <div style={{fontSize:isMobile?13:15,fontWeight:700,display:"flex",alignItems:"center",gap:6}}>
                   <button onClick={e=>{e.stopPropagation();togglePreferred(name,sp);}} title={sp.preferred?"Remove from preferred":"Add to preferred"} style={{background:"none",border:"none",cursor:"pointer",fontSize:15,padding:0,color:sp.preferred?T.amber:T.border,lineHeight:1}}>{sp.preferred?"\u2605":"\u2606"}</button>
-                  {name}
+                  {sp.website
+                    ?<a href={/^https?:\/\//.test(sp.website)?sp.website:`https://${sp.website}`} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} title="Open supplier website" style={{color:T.blue,textDecoration:"none"}}>{name} <span style={{fontSize:11}}>↗</span></a>
+                    :name}
                 </div>
                 {!isMobile&&<div style={{fontSize:12,color:T.muted}}>{sp.type==="trade"?"Trade":"Retail"}</div>}
                 {!isMobile&&<div style={{textAlign:"right",fontSize:13}}>{w+l>0?<span style={{fontWeight:700,color:w>=l?T.teal:T.coral}}>{w} of {w+l}</span>:<span style={{color:T.muted}}>{"\u2014"}</span>}</div>}
@@ -1788,7 +1832,7 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
       <h2 style={{margin:"0 0 6px",fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Scan receipt or invoice</h2>
       <p style={{margin:"0 0 16px",fontSize:isMobile?13:15,color:T.muted,lineHeight:1.6}}>AI extracts ingredients, prices, and supplier. You review and correct before saving. The photo is discarded after extraction — only the data is saved.</p>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20,flexWrap:"wrap"}}>
-        <span style={{fontSize:12,color:T.muted,fontWeight:700}}>Delivery for:</span>
+        <span style={{fontSize:12,color:T.muted,fontWeight:700}}>Upload for:</span>
         {[{id:"all",l:"Shared"},{id:"loc1",l:locations.loc1},{id:"loc2",l:locations.loc2}].map(l=>(
           <button key={l.id} onClick={()=>setScanLoc(l.id)} style={{background:scanLoc===l.id?T.blue:"transparent",border:`1.5px solid ${scanLoc===l.id?T.blue:T.border}`,color:scanLoc===l.id?"#fff":T.slate,padding:"5px 12px",borderRadius:18,fontSize:12,cursor:"pointer",fontWeight:600}}>{l.l}</button>
         ))}
@@ -1898,6 +1942,7 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
                 <tr style={{textAlign:"left",color:T.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.5px"}}>
                   <th style={{padding:"9px 14px",fontWeight:700}}>Date</th>
                   <th style={{padding:"9px 8px",fontWeight:700}}>Supplier</th>
+                  <th style={{padding:"9px 8px",fontWeight:700}}>Location</th>
                   <th style={{padding:"9px 8px",fontWeight:700,textAlign:"right"}}>Items</th>
                   <th style={{padding:"9px 8px",fontWeight:700,textAlign:"right"}}>Gross</th>
                   <th style={{padding:"9px 8px",fontWeight:700,textAlign:"right"}}>Invoice</th>
@@ -1906,13 +1951,14 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
               </thead>
               <tbody>
                 {histLoading?(
-                  <tr><td colSpan={6} style={{padding:"22px 14px",textAlign:"center",color:T.muted}}>Loading…</td></tr>
+                  <tr><td colSpan={7} style={{padding:"22px 14px",textAlign:"center",color:T.muted}}>Loading…</td></tr>
                 ):filtered.length===0?(
-                  <tr><td colSpan={6} style={{padding:"22px 14px",textAlign:"center",color:T.muted}}>No receipts in {view.label}.</td></tr>
+                  <tr><td colSpan={7} style={{padding:"22px 14px",textAlign:"center",color:T.muted}}>No receipts in {view.label}.</td></tr>
                 ):filtered.map(r=>(
                   <tr key={r.id} style={{borderTop:`1px solid ${T.border}`}}>
                     <td style={{padding:"10px 14px",color:T.slate,whiteSpace:"nowrap"}}>{r.date}</td>
                     <td style={{padding:"10px 8px",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",maxWidth:160}}>{r.supplier}</td>
+                    <td style={{padding:"10px 8px",color:T.muted,whiteSpace:"nowrap"}}>{r.location==="loc1"?locations.loc1:r.location==="loc2"?locations.loc2:"Shared"}</td>
                     <td style={{padding:"10px 8px",textAlign:"right",color:T.muted}}>{r.itemCount}</td>
                     <td style={{padding:"10px 8px",textAlign:"right"}}>{r.gross!=null?`$${fmt(r.gross)}`:"—"}</td>
                     <td style={{padding:"10px 8px",textAlign:"right",fontWeight:600}}>{r.invoice!=null?`$${fmt(r.invoice)}`:"—"}</td>
