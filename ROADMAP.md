@@ -12,8 +12,21 @@ These are temporary testing values and final checks. They must be reverted/confi
 - [ ] **T2** — `DISCOVERY_MAX_USES` → `2` (currently `6` for testing) — in `src/App.jsx`
 - [ ] **T4** — `DAILY_CAPS.price_check` → `1`/day (currently `10`). Note: `price_check` is now unused after the actuals-vs-live rework — safe to tidy/remove entirely.
 - [ ] **preferred_refresh cap** — set final launch value (likely `1`/day) in `DAILY_CAPS`, `src/db.js`. This now powers the dashboard "Refresh live prices".
+- [ ] **T6** — `MODEL` → decide final model before go-live (currently `claude-haiku-4-5-20251001` for MVP cost testing; was `claude-sonnet-4-6`) — in `src/App.jsx` line 14. Single constant drives all 6 AI call sites. Watch **scan accuracy** (misread prices silently corrupt data) and **Insights reasoning** during the Haiku trial; revert wholesale, or carve those two back to Sonnet, if either degrades.
+- [ ] **T6a — Insights fallback** — if Haiku underperforms on the **Insights** feature specifically (weak/vague insights, poor focus-bowl reasoning), revert **Insights back to Sonnet 4.6** even if Haiku is kept elsewhere. NB: selective revert needs a second model reference — introduce e.g. `INSIGHTS_MODEL` and use it on the insights call (`src/App.jsx` ~line 412) — because today the one `MODEL` constant can't be split per-endpoint.
 - [ ] **T5** — Validate live pricing from a **Canadian IP**. UK testing cannot confirm Canadian-retailer scraping. Covers: "Best price today" refresh + the market-overlay on ingredient trend charts.
 - [ ] **T3** — Final RLS review across all Supabase tables before go-live. They currently look correctly locked (`for all to authenticated using(true) with check(true)`); just confirm.
+
+---
+
+## Near-term (paused during model testing)
+
+Not V2 — imminent, only held while the Haiku cost trial runs.
+
+### Fan-out cap on "Refresh live prices"
+Limit the refresh to the **top 3 preferred suppliers**, ranked by receipt spend, intersected with the ticked (price-checkable) ingredients — in `refreshPreferred`, `src/App.jsx`.
+
+**Why:** the refresh loops one web-search call **per** preferred supplier (`max_uses:2` each), so N suppliers = up to 2N searches per press. The daily cap gates the button to 1/day but does **not** bound the fan-out. Each web search also drags ~10–14k tokens of page content back as billed **input** (~$0.04–0.05/search all-in, blowback + $0.01 fee), so an uncapped refresh over many suppliers is the dominant cost — e.g. 197 searches on 18 Jul ≈ $10.89 that day. Capping to 3 suppliers bounds both the search fee and the input blowback.
 
 ---
 
@@ -59,3 +72,4 @@ Currently all AI/web calls are on-demand only (no background jobs). This would a
 - Working rhythm: discuss → propose → approve onto list → **build** → compile-check → stage → user commits. One consolidated commit per session.
 - All AI/web calls are on-demand only; no background jobs.
 - Actuals (receipts) drive all cost/margin/trend maths. Live market prices are advisory only and never blended into actuals.
+- **Cost model (derived from July usage):** Sonnet 4.6 = $3/$15 per M in/out; Haiku 4.5 = $1/$5 (⅓ the price). Web search = $0.01/search, but the real cost is the ~10–14k input tokens of page content each search feeds back into context. Web-search endpoints are the whole bill — scans/chat are pennies. Levers, in order: (1) cap fan-out, (2) revert `max_uses` to 1, (3) Haiku on search endpoints cuts the input blowback ⅔. Prompt caching does **not** help search (results differ every call) — only the repeated chat data-summary, which is negligible.
