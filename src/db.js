@@ -20,7 +20,7 @@ export async function loadAll() {
 
   const suppliers = {};
   (sups.data || []).forEach(s => {
-    suppliers[s.name] = { type: s.type, contact: s.contact, phone: s.phone, email: s.email, terms: s.terms, delivery: s.delivery, notes: s.notes, preferred: !!s.preferred, address: s.address || "" };
+    suppliers[s.name] = { type: s.type, contact: s.contact, phone: s.phone, email: s.email, terms: s.terms, delivery: s.delivery, notes: s.notes, preferred: !!s.preferred, address: s.address || "", website: s.website || "" };
   });
 
   const menuObj = {};
@@ -225,10 +225,15 @@ export async function loadMarketChecks() {
 }
 
 // ─── Daily usage caps (item 11): one row per action per day, shared org-wide ─
+// Daily caps per AI action, shared org-wide. TEMPORARY: discovery + preferred_refresh
+// raised to 10/day for testing — pull back to 1 before launch.
+const DAILY_CAPS = { price_check: 1, discovery: 10, preferred_refresh: 10 };
 export async function canRunToday(action) {
   const today = new Date().toISOString().slice(0, 10);
-  const { data } = await supabase.from("usage_log").select("*").eq("action", action).eq("day", today).limit(1);
-  return { allowed: !(data && data.length), last: data && data[0] ? data[0] : null };
+  const limit = DAILY_CAPS[action] ?? 1;
+  const { data } = await supabase.from("usage_log").select("*").eq("action", action).eq("day", today);
+  const used = (data || []).length;
+  return { allowed: used < limit, used, limit, last: data && data.length ? data[data.length - 1] : null };
 }
 export async function recordRun(action, byEmail) {
   const today = new Date().toISOString().slice(0, 10);

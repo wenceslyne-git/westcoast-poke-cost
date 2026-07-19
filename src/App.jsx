@@ -340,7 +340,7 @@ export default function App(){
 
   const doAllChecks=async()=>{
     const gate=await canRunToday("price_check");
-    if(!gate.allowed){say(`Already checked today${gate.last?.by_email?" by "+gate.last.by_email.split("@")[0]:""} — next check tomorrow`,true);return;}
+    if(!gate.allowed){say(`Price check limit reached (${gate.used}/${gate.limit} today) — next check tomorrow`,true);return;}
     setChkAll(true);
     await recordRun("price_check",session?.user?.email);
     for(const[n,e]of Object.entries(data.ingredients))await doCheck(n,e[0]?.unit||"unit",gL(e));
@@ -913,7 +913,7 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
   const [editSup,setEditSup]=useState(null);
   const [ef,setEf]=useState({});
   const [showAdd,setShowAdd]=useState(false);
-  const [nf,setNf]=useState({name:"",type:"trade",contact:"",phone:"",email:"",terms:"",delivery:"",notes:""});
+  const [nf,setNf]=useState({name:"",type:"trade",contact:"",phone:"",email:"",website:"",terms:"",delivery:"",notes:""});
   const [adding,setAdding]=useState(false);
   const [dCat,setDCat]=useState("Any");
   const [dRad,setDRad]=useState(20);
@@ -945,7 +945,7 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
     });
   });
 
-  const startEdit=(name,sp)=>{setEditSup(name);setEf({type:sp.type||"retail",contact:sp.contact||"",phone:sp.phone||"",email:sp.email||"",terms:sp.terms||"",delivery:sp.delivery||"",notes:sp.notes||"",preferred:!!sp.preferred,address:sp.address||""});};
+  const startEdit=(name,sp)=>{setEditSup(name);setEf({type:sp.type||"retail",contact:sp.contact||"",phone:sp.phone||"",email:sp.email||"",website:sp.website||"",terms:sp.terms||"",delivery:sp.delivery||"",notes:sp.notes||"",preferred:!!sp.preferred,address:sp.address||""});};
   const saveEdit=async()=>{try{await upsertSupplier(editSup,ef);await reload();say("Supplier updated");setEditSup(null);}catch(e){say("Save failed",true);}};
   const delSup=async(name)=>{
     if(!window.confirm(`Delete supplier "${name}"?`))return;
@@ -955,13 +955,13 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
     const name=nf.name.trim();if(!name)return;
     if(data.suppliers[name]){say("That supplier already exists",true);return;}
     setAdding(true);
-    try{const {name:_,...fields}=nf;await upsertSupplier(name,fields);await reload();say(`${name} added`);setShowAdd(false);setNf({name:"",type:"trade",contact:"",phone:"",email:"",terms:"",delivery:"",notes:""});}
+    try{const {name:_,...fields}=nf;await upsertSupplier(name,fields);await reload();say(`${name} added`);setShowAdd(false);setNf({name:"",type:"trade",contact:"",phone:"",email:"",website:"",terms:"",delivery:"",notes:""});}
     catch(e){say("Add failed",true);}
     setAdding(false);
   };
   const discover=async()=>{
     const gate=await canRunToday("discovery");
-    if(!gate.allowed){say(`Discovery already used today${gate.last?.by_email?" by "+gate.last.by_email.split("@")[0]:""} — available tomorrow`,true);return;}
+    if(!gate.allowed){say(`Discovery limit reached (${gate.used}/${gate.limit} today) — try again tomorrow`,true);return;}
     setDBusy(true);setDResults(null);
     await recordRun("discovery","");
     try{
@@ -988,14 +988,16 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
     const prefs=Object.entries(data.suppliers).filter(([,sp])=>sp.preferred).map(([n])=>n);
     if(!prefs.length){say("No preferred suppliers yet — star some first",true);return;}
     const gate=await canRunToday("preferred_refresh");
-    if(!gate.allowed){say(`Preferred refresh already used today${gate.last?.by_email?" by "+gate.last.by_email.split("@")[0]:""} — available tomorrow`,true);return;}
+    if(!gate.allowed){say(`Preferred refresh limit reached (${gate.used}/${gate.limit} today) — try again tomorrow`,true);return;}
     setRefBusy(true);setRefResults(null);
     await recordRun("preferred_refresh","");
     const ingList=Object.entries(data.ingredients).map(([n,e])=>`${n} (per ${e[0]?.unit||"unit"})`).join(", ");
     const results={};
     for(const supName of prefs){
       try{
-        const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:900,tools:[{type:"web_search_20250305",name:"web_search",max_uses:2}],messages:[{role:"user",content:`Search current prices at "${supName}" in Vancouver BC area for these restaurant ingredients: ${ingList}. Return ONLY JSON no markdown: {"found":[{"ingredient":"","price":0.00,"unit":"","notes":"brief"}]}. Only include items with a genuine price signal. If none: {"found":[]}`}]})});
+        const site=data.suppliers[supName]?.website||"";
+        const siteHint=site?` Their website is ${site} — check that site first before searching elsewhere.`:"";
+        const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:900,tools:[{type:"web_search_20250305",name:"web_search",max_uses:2}],messages:[{role:"user",content:`Search current prices at "${supName}" in Vancouver BC area for these restaurant ingredients: ${ingList}.${siteHint} Return ONLY JSON no markdown: {"found":[{"ingredient":"","price":0.00,"unit":"","notes":"brief"}]}. Only include items with a genuine price signal. If none: {"found":[]}`}]})});
         const out=await r.json();
         if(!r.ok){results[supName]={found:[],err:true};continue;}
         const parsed=pickJson(out);
@@ -1031,6 +1033,7 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
             <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>CONTACT</div><input value={nf.contact} onChange={e=>setNf(p=>({...p,contact:e.target.value}))} style={inp}/></div>
             <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>PHONE</div><input value={nf.phone} onChange={e=>setNf(p=>({...p,phone:e.target.value}))} style={inp}/></div>
             <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>EMAIL</div><input value={nf.email} onChange={e=>setNf(p=>({...p,email:e.target.value}))} style={inp}/></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>WEBSITE</div><input value={nf.website} onChange={e=>setNf(p=>({...p,website:e.target.value}))} placeholder="https://…" style={inp}/></div>
             <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>NOTES</div><input value={nf.notes} onChange={e=>setNf(p=>({...p,notes:e.target.value}))} style={inp}/></div>
           </div>
           <button onClick={addSup} disabled={adding||!nf.name.trim()} style={{background:T.teal,color:"#fff",border:"none",borderRadius:10,padding:"10px 24px",fontSize:14,fontWeight:800,cursor:"pointer",opacity:adding||!nf.name.trim()?0.6:1}}>{adding?"Adding...":"Add supplier"}</button>
@@ -1128,7 +1131,7 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
                   {editSup===name?(
                     <div>
                       <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr",gap:8,marginBottom:10}}>
-                        {[["contact","Contact"],["phone","Phone"],["email","Email"],["terms","Terms"],["delivery","Delivery days"]].map(([k,lb])=>(
+                        {[["contact","Contact"],["phone","Phone"],["email","Email"],["website","Website"],["terms","Terms"],["delivery","Delivery days"]].map(([k,lb])=>(
                           <div key={k}><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>{lb.toUpperCase()}</div><input value={ef[k]} onChange={e=>setEf(p=>({...p,[k]:e.target.value}))} style={{...inp,background:T.card}}/></div>
                         ))}
                         <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>TYPE</div><select value={ef.type} onChange={e=>setEf(p=>({...p,type:e.target.value}))} style={{...inp,background:T.card}}><option value="trade">Trade account</option><option value="retail">Retail (cash)</option></select></div>
@@ -1147,6 +1150,7 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
                         {sp.contact&&<span><strong>Contact</strong> {sp.contact}</span>}
                         {sp.phone&&<span><strong>Phone</strong> {sp.phone}</span>}
                         {sp.email&&<span><strong>Email</strong> {sp.email}</span>}
+                        {sp.website&&<span><strong>Website</strong> <a href={/^https?:\/\//.test(sp.website)?sp.website:`https://${sp.website}`} target="_blank" rel="noopener noreferrer" style={{color:T.blue,textDecoration:"none"}}>{sp.website.replace(/^https?:\/\//,"")} ↗</a></span>}
                         {sp.address&&<span><strong>Address</strong> {sp.address}</span>}
                       </div>
                       {sp.notes&&<div style={{fontSize:12,color:T.muted,fontStyle:"italic",marginBottom:12}}>{sp.notes}</div>}
