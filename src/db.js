@@ -152,14 +152,14 @@ export async function loadDiscovered() {
   const { data, error } = await supabase.from("discovered_suppliers").select("*").order("name", { ascending: true });
   if (error) return [];
   return (data || []).map(r => ({
-    id: r.id, name: r.name, website: r.website || "", city: r.city || "", street: r.street || "",
+    id: r.id, name: r.name, website: r.website || "", city: r.city || "", street: r.street || "", type: r.type || "",
     firstSeen: r.first_seen, lastSeen: r.last_seen,
   }));
 }
 export async function saveDiscovered(rows) {
   if (!rows || !rows.length) return;
   const payload = rows.map(r => ({
-    name: r.name, website: r.website || "", city: r.city || "", street: r.street || "",
+    name: r.name, website: r.website || "", city: r.city || "", street: r.street || "", type: r.type || "",
     dedup_key: r.dedup_key, last_seen: new Date().toISOString(),
   }));
   // first_seen not sent → preserved on update, defaults to now() on insert

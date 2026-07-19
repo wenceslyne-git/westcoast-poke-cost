@@ -990,7 +990,7 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
     await recordRun("discovery","");
     try{
       const where=dLoc==="loc1"?"West 8th & Cambie, Vancouver BC":dLoc==="loc2"?"Ironwood Plaza, Richmond BC":"a poke restaurant with locations at West 8th & Cambie Vancouver BC and Ironwood Plaza Richmond BC";
-      const prompt=`Find real wholesale/trade food suppliers within ${dRad}km of ${where}. Measure distance from ${dLoc==="both"?"whichever location is nearer":"that location only"}. Category: ${dCat==="Any"?"seafood, produce or dry goods":dCat}. Prioritise wholesalers and distributors over retail. Return ONLY JSON no markdown: {"suppliers":[{"name":"","category":"","city":"","street":"street address only, or empty","website":"https URL or empty","distance":"~Xkm from <location>","notes":"one line: what they offer, trade terms if known"}]}. Return up to 25 results. Only real, verifiable businesses — do NOT invent entries or pad the list to reach 25, and do NOT repeat the same business twice (a chain with multiple branches is fine only if the street addresses genuinely differ). If nothing found: {"suppliers":[]}`;
+      const prompt=`Find real food suppliers within ${dRad}km of ${where} that a small restaurant could buy from. Measure distance from ${dLoc==="both"?"whichever location is nearer":"that location only"}. Include BOTH (a) wholesalers and distributors for bulk buying, AND (b) grocery and retail stores — this is a small 2-location poke restaurant that also buys smaller quantities from grocery/retail for low-volume, specialty, or perishable items to avoid food waste, so retail options are useful, not just bulk. Category: ${dCat==="Any"?"seafood, produce, or dry goods":dCat}. Return ONLY JSON no markdown: {"suppliers":[{"name":"","type":"wholesale | distributor | grocery | retail","category":"","city":"","street":"street address only, or empty","website":"https URL or empty","distance":"~Xkm from <location>","notes":"one line: what they offer, bulk or retail, terms if known"}]}. Return up to 25 results, mixing wholesale and grocery/retail where both exist. Only real, verifiable businesses — do NOT invent entries or pad the list to reach 25, and do NOT repeat the same business twice (a chain with multiple branches is fine only if the street addresses genuinely differ). If nothing found: {"suppliers":[]}`;
       const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:4000,tools:[{type:"web_search_20250305",name:"web_search",max_uses:DISCOVERY_MAX_USES}],messages:[{role:"user",content:prompt}]})});
       const out=await r.json();
       if(!r.ok){say((out?.error?.message||`API error ${r.status}`).slice(0,140),true);setDBusy(false);return;}
@@ -999,7 +999,7 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
       setDResults(list);
       // Bank every result into the discovered-suppliers catalog so the search is never wasted
       if(list.length){
-        try{await saveDiscovered(list.map(s=>({name:s.name,website:s.website||"",city:s.city||"",street:s.street||"",dedup_key:dedupKey(s.name,s.city,s.street)})));await loadCatalog();}catch(e){console.error(e);}
+        try{await saveDiscovered(list.map(s=>({name:s.name,website:s.website||"",city:s.city||"",street:s.street||"",type:s.type||"",dedup_key:dedupKey(s.name,s.city,s.street)})));await loadCatalog();}catch(e){console.error(e);}
       }
       if(!list.length)say("No suppliers found — try a wider radius",true);
     }catch(e){console.error(e);say("Search failed — try again",true);}
@@ -1007,7 +1007,7 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
   };
   const addPreferred=async(r)=>{
     try{
-      await upsertSupplier(r.name,{type:"trade",preferred:true,website:r.website||"",address:[r.street,r.city].filter(Boolean).join(", ")||r.address||"",notes:`${r.category||""} · ${r.distance||""} · ${r.notes||""}`.trim()});
+      await upsertSupplier(r.name,{type:/grocery|retail/i.test(r.type||"")?"retail":"trade",preferred:true,website:r.website||"",address:[r.street,r.city].filter(Boolean).join(", ")||r.address||"",notes:`${r.category||""} · ${r.distance||""} · ${r.notes||""}`.trim()});
       await reload();say(`${r.name} added to preferred`);
     }catch(e){say("Add failed",true);}
   };
@@ -1103,7 +1103,7 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
             {dResults.map((r,i)=>(
               <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"9px 0",borderBottom:i<dResults.length-1?`1px solid ${T.border}`:"none"}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:13,fontWeight:700}}>{r.website?<a href={/^https?:\/\//.test(r.website)?r.website:`https://${r.website}`} target="_blank" rel="noopener noreferrer" style={{color:T.blue,textDecoration:"none"}}>{r.name} ↗</a>:r.name}</div>
+                  <div style={{fontSize:13,fontWeight:700,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>{r.website?<a href={/^https?:\/\//.test(r.website)?r.website:`https://${r.website}`} target="_blank" rel="noopener noreferrer" style={{color:T.blue,textDecoration:"none"}}>{r.name} ↗</a>:r.name}{r.type&&<span style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px",color:/whole|distrib/i.test(r.type)?T.blue:T.teal,background:/whole|distrib/i.test(r.type)?T.blueL:T.tealL,padding:"1px 7px",borderRadius:10}}>{r.type}</span>}</div>
                   <div style={{fontSize:11,color:T.muted}}>{[r.category,r.city,r.distance,r.notes].filter(Boolean).join(" \u00b7 ")}</div>
                 </div>
                 {data.suppliers[r.name]
