@@ -2066,17 +2066,6 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,loadingInsigh
             <div style={{fontSize:10,color:"rgba(255,255,255,0.5)",textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:8}}>✦ Generated {new Date().toLocaleDateString("en-CA",{day:"numeric",month:"short",year:"numeric"})} · based on {latMon} data</div>
             <div style={{fontSize:isMobile?18:24,fontWeight:800,color:T.bg,lineHeight:1.3}}>{aiInsights.headline}</div>
           </div>
-          {aiInsights.focus?.bowl&&(
-            <div style={{background:T.card,border:`1px solid ${T.border}`,borderLeft:`4px solid ${T.teal}`,borderRadius:isMobile?12:16,padding:isMobile?"16px":"18px 22px",marginBottom:16}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
-                <span style={{fontSize:20}}>🎯</span>
-                <span style={{fontSize:isMobile?14:16,fontWeight:800}}>This month's focus: push the {aiInsights.focus.bowl}</span>
-                <Tag c={T.slate} bg={T.bg} sm>ADVISORY</Tag>
-              </div>
-              <div style={{fontSize:isMobile?13:14,color:T.slate,lineHeight:1.65,marginBottom:6}}>{aiInsights.focus.reason}</div>
-              {aiInsights.focus.contingency&&<div style={{fontSize:12,color:T.muted}}>{aiInsights.focus.contingency}</div>}
-            </div>
-          )}
           <div style={card}>
             <div style={{fontSize:isMobile?15:17,fontWeight:700,marginBottom:4}}>Ask a question about your data</div>
             <div style={{fontSize:13,color:T.muted,marginBottom:14}}>e.g. "Which bowl has the worst margin?" or "If tuna goes up 10% what happens?"</div>
@@ -2095,6 +2084,17 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,loadingInsigh
               <button onClick={sendChat} disabled={chatLoading||!chatInput.trim()} style={{background:T.blue,color:"#fff",border:"none",borderRadius:12,padding:"11px 18px",fontSize:14,fontWeight:700,cursor:chatLoading||!chatInput.trim()?"not-allowed":"pointer",opacity:chatLoading||!chatInput.trim()?0.6:1,flexShrink:0}}>Send</button>
             </div>
           </div>
+          {aiInsights.focus?.bowl&&(
+            <div style={{background:T.card,border:`1px solid ${T.border}`,borderLeft:`4px solid ${T.teal}`,borderRadius:isMobile?12:16,padding:isMobile?"16px":"18px 22px",marginBottom:16}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+                <span style={{fontSize:20}}>🎯</span>
+                <span style={{fontSize:isMobile?14:16,fontWeight:800}}>This month's focus: push the {aiInsights.focus.bowl}</span>
+                <Tag c={T.slate} bg={T.bg} sm>ADVISORY</Tag>
+              </div>
+              <div style={{fontSize:isMobile?13:14,color:T.slate,lineHeight:1.65,marginBottom:6}}>{aiInsights.focus.reason}</div>
+              {aiInsights.focus.contingency&&<div style={{fontSize:12,color:T.muted}}>{aiInsights.focus.contingency}</div>}
+            </div>
+          )}
           <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
             <div style={{display:"flex",gap:2,background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:2}}>
               {[["cards","▦ Cards"],["list","≡ List"]].map(([id,lb])=>(
