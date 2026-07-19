@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
-import { LIGHT, DARK, DATA, gL, gPct, fmt, fmtK, useBreakpoint, Spark, PriceChart, WCP_LOGO } from "./data.jsx";
+import { LIGHT, DARK, DATA, gL, gPct, fmt, fmtK, useBreakpoint, Spark, PriceChart, WCP_LOGO, ADDONS } from "./data.jsx";
 import { supabase, isOwner } from "./supabase.js";
-import { loadAll, seedIfEmpty, saveReceipt, saveSales, addPrice, deletePriceEntry, deleteIngredient, deleteSupplier, upsertSupplier, saveMenuItem, deleteMenuItem, saveAlert, saveMarketChecks, loadMarketChecks, canRunToday, recordRun } from "./db.js";
+import { loadAll, seedIfEmpty, saveReceipt, saveSales, addPrice, deletePriceEntry, deleteIngredient, deleteSupplier, upsertSupplier, saveMenuItem, deleteMenuItem, saveAlert, saveMarketChecks, loadMarketChecks, canRunToday, recordRun, loadSetting, saveSetting, scansThisMonth, recordScan } from "./db.js";
 import Login from "./Login.jsx";
 
 const API_HEADERS = () => ({
@@ -50,6 +50,8 @@ export default function App(){
         if(!cancelled)setData(d);
         const mk=await loadMarketChecks();
         if(!cancelled)setMarket(mk);
+        const mix=await loadSetting("size_mix",{small:25,medium:50,large:25});
+        if(!cancelled&&mix)setSizeMix(mix);
         if(!cancelled)await refreshCaps();
       }catch(e){console.error("DB load failed",e);}
       if(!cancelled)setDbLoading(false);
@@ -73,6 +75,7 @@ export default function App(){
   const [scanLoc,setScanLoc]=useState("all");
   const [insightsStale,setInsightsStale]=useState(false);
   const [market,setMarket]=useState({});
+  const [sizeMix,setSizeMix]=useState({small:25,medium:50,large:25});
   const [caps,setCaps]=useState({});
   const refreshCaps=async()=>{
     const out={};
@@ -107,10 +110,18 @@ export default function App(){
     if(!valid.length)return 0;
     const last=valid[valid.length-1];return normPrice(last.price,last.unit);
   };
-  const bCostAtApp=(item,monthKey)=>{const m=data.menu[item];if(!m)return 0;return Object.entries(m.ing).reduce((sum,[i,q])=>sum+gILAtApp(i,monthKey)*q,0);};
-  const bCost=item=>{const m=data.menu[item];if(!m)return 0;return Object.entries(m.ing).reduce((s,[i,q])=>s+gIL(i)*q,0);};
-  const bFCP=item=>{const m=data.menu[item];if(!m)return 0;return(bCost(item)/m.price)*100;};
-  const bMargin=item=>{const m=data.menu[item];if(!m)return 0;return((m.price-bCost(item))/m.price)*100;};
+  const costSzAt=(item,sz,monthKey)=>{const m=data.menu[item];if(!m)return 0;return Object.entries(ingFor(m,sz)).reduce((sum,[i,q])=>sum+gILAtApp(i,monthKey)*q,0);};
+  const bCostAtApp=(item,monthKey)=>{const w=mixW();return SIZES.reduce((s,sz)=>s+costSzAt(item,sz,monthKey)*w[sz],0);};
+  const SIZES=["small","medium","large"];
+  const isBowl=m=>!m.category||m.category==="classic"||m.category==="byo";
+  const mixW=()=>{const t=(sizeMix.small||0)+(sizeMix.medium||0)+(sizeMix.large||0)||100;return{small:(sizeMix.small||0)/t,medium:(sizeMix.medium||0)/t,large:(sizeMix.large||0)/t};};
+  const ingFor=(m,sz)=>m.ing?.[sz]||m.ing?.medium||m.ing||{};
+  const priceFor=(m,sz)=>m.sizes?.[sz]??m.price??0;
+  const costSz=(item,sz)=>{const m=data.menu[item];if(!m)return 0;return Object.entries(ingFor(m,sz)).reduce((s,[i,q])=>s+gIL(i)*q,0);};
+  const blendedPrice=item=>{const m=data.menu[item];if(!m)return 0;const w=mixW();return SIZES.reduce((s,sz)=>s+priceFor(m,sz)*w[sz],0);};
+  const bCost=item=>{const m=data.menu[item];if(!m)return 0;const w=mixW();return SIZES.reduce((s,sz)=>s+costSz(item,sz)*w[sz],0);};
+  const bFCP=item=>{const p=blendedPrice(item);if(!p)return 0;return(bCost(item)/p)*100;};
+  const bMargin=item=>{const p=blendedPrice(item);if(!p)return 0;return((p-bCost(item))/p)*100;};
 
   const movers=Object.entries(data.ingredients).map(([n,e])=>({n,ch:gPct(e),lat:gL(e),unit:e[0]?.unit,entries:e})).sort((a,b)=>Math.abs(b.ch)-Math.abs(a.ch)).slice(0,8);
   const activeAlerts=Object.entries(data.alerts).filter(([i,t])=>{const e=data.ingredients[i];return e&&e.length&&gL(e)>t;});
@@ -156,12 +167,15 @@ export default function App(){
   };
 
   const doScan=async()=>{
-    if(!img)return;setScanning(true);setScanRes(null);
+    if(!img)return;
+    const used=await scansThisMonth();
+    if(used>=250){say("Monthly scan limit (250) reached — resets on the 1st",true);return;}
+    setScanning(true);setScanRes(null);
     try{
       const fileBlock=img.isPdf
         ?{type:"document",source:{type:"base64",media_type:"application/pdf",data:img.b64}}
         :{type:"image",source:{type:"base64",media_type:img.mime||"image/jpeg",data:img.b64}};
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:800,messages:[{role:"user",content:[fileBlock,{type:"text",text:'Parse this supplier receipt or invoice for a poke restaurant in Vancouver. Return ONLY JSON no markdown: {"supplier":"name or Unknown","date":"YYYY-MM-DD","items":[{"ingredient":"normalised name","price":0.00,"unit":"lb","quantity":1,"line_total":0.00}]}. price = UNIT price. quantity = units bought. line_total = quantity x unit price as shown on the receipt. Skip taxes and fees. If unreadable: {"error":"Cannot read receipt clearly"}'}]}]})});
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:600,messages:[{role:"user",content:[fileBlock,{type:"text",text:'Parse this supplier receipt or invoice for a poke restaurant in Vancouver. Return ONLY JSON no markdown: {"supplier":"name or Unknown","date":"YYYY-MM-DD","items":[{"ingredient":"normalised name","price":0.00,"unit":"lb","quantity":1,"line_total":0.00}]}. price = UNIT price. quantity = units bought. line_total = quantity x unit price as shown on the receipt. Skip taxes and fees. If unreadable: {"error":"Cannot read receipt clearly"}'}]}]})});
       const out=await res.json();
       if(!res.ok){
         const apiMsg=out?.error?.message||`API error ${res.status}`;
@@ -173,6 +187,7 @@ export default function App(){
       const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
       if(parsed.error){say(parsed.error,true);}
       else{
+        recordScan(session?.user?.email).catch(()=>{});
         const fp=`${parsed.supplier}|${parsed.date}|${parsed.items?.length}`;
         if((data.receipts||[]).includes(fp)){setModal(parsed);}
         else{setScanRes(parsed);say(`Found ${parsed.items?.length||0} items on receipt`);}
@@ -243,7 +258,9 @@ export default function App(){
     revenue:{total:rev,loc1:latMon?cRev(latMon,"loc1"):0,loc2:latMon?cRev(latMon,"loc2"):0},
     cogsPct:{overall:fcp.toFixed(1),loc1:latMon&&cRev(latMon,"loc1")?(cCOGS(latMon,"loc1")/cRev(latMon,"loc1")*100).toFixed(1):0,loc2:latMon&&cRev(latMon,"loc2")?(cCOGS(latMon,"loc2")/cRev(latMon,"loc2")*100).toFixed(1):0},
     topMovers:movers.slice(0,5).map(m=>({ingredient:m.n,changePct:m.ch.toFixed(1),price:`$${m.lat.toFixed(2)}/${m.unit}`})),
-    menu:Object.entries(data.menu).map(([name,m])=>({name,sell:m.price,cost:bCost(name).toFixed(2),foodCostPct:bFCP(name).toFixed(1)})),
+    menu:Object.entries(data.menu).map(([name])=>({name,sellBlended:blendedPrice(name).toFixed(2),costBlended:bCost(name).toFixed(2),foodCostPct:bFCP(name).toFixed(1)})),
+    sizeMix,
+    addOnPricing:ADDONS,
     alerts:activeAlerts.map(([i,t])=>({ingredient:i,threshold:t,current:gL(data.ingredients[i]).toFixed(2)})),
     marketSignals:Object.entries(market).slice(0,20).map(([ing,rows])=>{
       const latest=rows[rows.length-1];const first=rows[0];
@@ -287,7 +304,7 @@ export default function App(){
   if(!session||!isOwner(session.user?.email)) return <Login T={T}/>;
 
   return(
-    <div style={{minHeight:"100vh",background:T.bg,color:T.navy,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>
+    <div style={{minHeight:"100vh",width:"100%",overflowX:"hidden",background:T.bg,color:T.navy,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>
 
       {/* modal */}
       {modal&&(
@@ -307,7 +324,7 @@ export default function App(){
       {toast&&<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",zIndex:999,background:toast.err?T.coral:T.teal,color:"#fff",padding:"10px 22px",borderRadius:30,fontSize:14,fontWeight:700,boxShadow:"0 4px 24px rgba(0,0,0,0.2)",whiteSpace:"nowrap"}}>{toast.msg}</div>}
 
       {/* header */}
-      <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"0 14px":"0 28px",display:"flex",alignItems:"center",height:isMobile?52:64,gap:8,position:"sticky",top:0,zIndex:100}}>
+      <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"6px 14px":"8px 20px",display:"flex",alignItems:"center",minHeight:isMobile?52:64,gap:8,rowGap:6,flexWrap:"wrap",position:"sticky",top:0,zIndex:100}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
           <div style={{width:isMobile?38:46,height:isMobile?38:46,borderRadius:"50%",background:"#fff",border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}>
             <img src={WCP_LOGO} alt="WCP" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
@@ -342,7 +359,7 @@ export default function App(){
       )}
 
       <div style={{display:"flex",alignItems:"stretch"}}>
-        <div style={{width:isMobile?54:64,flexShrink:0,background:T.card,borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column",alignItems:"center",gap:4,paddingTop:14,position:"sticky",top:isMobile?52:64,alignSelf:"flex-start",height:`calc(100vh - ${isMobile?52:64}px)`}}>
+        <div style={{width:isMobile?54:64,flexShrink:0,background:T.card,borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column",alignItems:"center",gap:4,paddingTop:14,position:"sticky",top:0,alignSelf:"flex-start",height:"100vh",paddingBottom:80}}>
           {TABS.map(t=>(
             <button key={t.id} onClick={()=>setTab(t.id)} title={t.label} aria-label={t.label} style={{position:"relative",width:isMobile?40:46,height:isMobile?40:46,borderRadius:12,background:tab===t.id?T.blueL:"transparent",border:tab===t.id?`1.5px solid ${T.blue}44`:"1.5px solid transparent",color:tab===t.id?T.blue:T.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>
               <NavIcon id={t.id} size={isMobile?19:22}/>
@@ -352,10 +369,10 @@ export default function App(){
         </div>
         <div style={{flex:1,minWidth:0}}>
       <div style={{padding:isMobile?"16px":"28px 32px",maxWidth:MAXW,margin:"0 auto"}}>
-        {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,cogs,gp,fcp,revDelta,data,movers,actions,cRev,cCOGS,setSelIng,setTab,bCost,bFCP,bMargin}}/>}
-        {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,market}}/>}
+        {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,cogs,gp,fcp,revDelta,data,movers,actions,cRev,cCOGS,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice}}/>}
+        {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedPrice,priceFor,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,market}}/>}
         {tab==="suppliers"&&<Suppliers {...{T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,reload}}/>}
-        {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bCostAtApp,bFCP,bMargin,months,onSaveSales:async(month,l1,l2,mix)=>{
+        {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,sizeMix,onSaveMix:async(mx)=>{setSizeMix(mx);try{await saveSetting("size_mix",mx);say("Size mix saved");}catch(e){say("Mix save failed",true);}},bFCP,bMargin,months,onSaveSales:async(month,l1,l2,mix)=>{
           const u=JSON.parse(JSON.stringify(data));
           u.sales[month]={loc1:l1,loc2:l2,mix:mix||{}};
           setData(u);
@@ -374,7 +391,7 @@ export default function App(){
 }
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
-function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,cogs,gp,fcp,revDelta,data,movers,actions,cRev,cCOGS,setSelIng,setTab,bCost,bFCP,bMargin}){
+function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,cogs,gp,fcp,revDelta,data,movers,actions,cRev,cCOGS,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice}){
   const h=headline;
   return(
     <div>
@@ -490,7 +507,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
               <div style={{fontSize:13,fontWeight:700,color:T.slate,marginBottom:4}}>Nothing to rank yet</div>
               <div style={{fontSize:12,lineHeight:1.6}}>Bowl costs build as you scan receipts or add prices. Once your ingredients have real prices, this ranking appears automatically.</div>
             </div>
-          ):Object.entries(data.menu).map(([b,m])=>({b,margin:bMargin(b),profit:m.price-bCost(b)})).sort((a,b)=>b.profit-a.profit).map((r,i,arr)=>(
+          ):Object.entries(data.menu).filter(([,m])=>!m.category||m.category==="classic"||m.category==="byo").map(([b])=>({b,margin:bMargin(b),profit:blendedPrice(b)-bCost(b)})).sort((a,b)=>b.profit-a.profit).map((r,i,arr)=>(
             <div key={r.b} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:i<arr.length-1?`1px solid ${T.border}`:"none"}}>
               <div style={{width:22,height:22,borderRadius:"50%",background:i===0?T.teal:T.bg,color:i===0?"#fff":T.muted,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0,border:i===0?"none":`1px solid ${T.border}`}}>{i+1}</div>
               <div style={{flex:1,fontSize:isMobile?13:14,fontWeight:600}}>{r.b}{i===0&&<span style={{marginLeft:8,fontSize:10,color:T.teal,fontWeight:800}}>PUSH</span>}</div>
@@ -1034,7 +1051,7 @@ function MultiLine({series,T,money=true}){
 }
 
 // ─── SALES & P&L ─────────────────────────────────────────────────────────────
-function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bCostAtApp,bFCP,bMargin,months,onSaveSales}){
+function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,sizeMix,onSaveMix,bFCP,bMargin,months,onSaveSales}){
   const [showForm,setShowForm]=useState(false);
   const [fMonth,setFMonth]=useState("");
   const [fL1,setFL1]=useState("");
@@ -1043,12 +1060,14 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
   const [saving,setSaving]=useState(false);
   const [period,setPeriod]=useState("month");
   const [off,setOff]=useState(0);
+  const [mcaSz,setMcaSz]=useState("agg");
+  const [mixDraft,setMixDraft]=useState(null);
   const monthOptions=(()=>{
     const opts=[];const now=new Date(2026,6);
     for(let i=0;i<12;i++){const d=new Date(now.getFullYear(),now.getMonth()-i);opts.push(`${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()]} ${d.getFullYear()}`);}
     return opts;
   })();
-  const bowls=Object.keys(data.menu);
+  const bowls=Object.entries(data.menu).filter(([,m])=>!m.category||m.category==="classic"||m.category==="byo").map(([n])=>n);
   const mixComplete=bowls.every(b=>fMix[b]?.l1!==undefined&&fMix[b]?.l1!==""&&fMix[b]?.l2!==undefined&&fMix[b]?.l2!=="");
   const submit=async()=>{
     if(!fMonth||(!fL1&&!fL2)||!mixComplete)return;
@@ -1179,8 +1198,24 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
                     </div>
                   ))}
                 </div>
+                {(()=>{
+                  const bowlRev=pm.reduce((s,m)=>{
+                    const mx=data.sales[m]?.mix||{};
+                    return s+Object.entries(mx).reduce((t,[b,v])=>{
+                      const units=locKey==="loc1"?(v.loc1||0):locKey==="loc2"?(v.loc2||0):((v.loc1||0)+(v.loc2||0));
+                      return t+units*blendedPrice(b);
+                    },0);
+                  },0);
+                  const other=r-bowlRev;
+                  if(!r||bowlRev<=0)return null;
+                  return(
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 4px 0",fontSize:isMobile?12:13}}>
+                      <span style={{color:T.muted}}>Bowls ≈ ${fmt(bowlRev)} (est. from counts × blended prices) · <strong style={{color:T.slate}}>Other revenue ≈ ${fmt(Math.max(0,other))}</strong> (drinks, sides, extras)</span>
+                    </div>
+                  );
+                })()}
                 {loc==="all"&&(
-                  <div style={{borderTop:`1px solid ${T.border}`,paddingTop:14}}>
+                  <div style={{borderTop:`1px solid ${T.border}`,paddingTop:14,marginTop:10}}>
                     {["loc1","loc2"].map((l,i)=>{
                       const lr=pm.reduce((s,m)=>s+cRev(m,l),0),lc=pm.reduce((s,m)=>s+cCOGS(m,l),0),lp=lr?(lc/lr)*100:0;
                       return(
@@ -1215,6 +1250,26 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
           </div>
         );
       })()}
+      <div style={{...card,marginBottom:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div>
+            <div style={{fontSize:14,fontWeight:700}}>Size mix</div>
+            <div style={{fontSize:11,color:T.muted}}>Share of bowls sold per size · set once from your POS report · powers all blended pricing and costs</div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            {["small","medium","large"].map(sz=>(
+              <div key={sz} style={{display:"flex",alignItems:"center",gap:4}}>
+                <span style={{fontSize:11,color:T.muted,fontWeight:700}}>{sz==="small"?"S":sz==="medium"?"M":"L"}</span>
+                <input type="number" inputMode="numeric" min="0" max="100" value={(mixDraft||sizeMix)[sz]} onChange={e=>setMixDraft(p=>({...(p||sizeMix),[sz]:parseInt(e.target.value)||0}))} style={{width:56,background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"7px 8px",color:T.navy,fontSize:13,textAlign:"right",outline:"none"}}/>
+                <span style={{fontSize:11,color:T.muted}}>%</span>
+              </div>
+            ))}
+            {mixDraft&&<button onClick={()=>{onSaveMix(mixDraft);setMixDraft(null);}} style={{background:T.teal,color:"#fff",border:"none",borderRadius:14,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Save mix</button>}
+          </div>
+        </div>
+        {(()=>{const d=mixDraft||sizeMix;const t=(d.small||0)+(d.medium||0)+(d.large||0);return t!==100?<div style={{marginTop:6,fontSize:11,color:T.amber,fontWeight:600}}>Adds to {t}% — weights are normalised automatically, but 100% keeps it honest.</div>:null;})()}
+      </div>
+
       {(()=>{
         const MNx=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
         const entered=Object.keys(data.sales).sort((a,b)=>new Date("1 "+a)-new Date("1 "+b));
@@ -1236,9 +1291,9 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
           {label:"COGS",color:T.coral,points:keys.map(k=>({label:k,y:groups[k].reduce((sum,m)=>sum+cCOGS(m,locKey),0)}))},
         ];
         const bowlCols=[T.blue,T.teal,T.coral,T.amber,"#8B5CF6","#EC4899","#6366F1","#10B981"];
-        const bowlSeries=Object.keys(data.menu).map((b,i)=>({label:b,color:bowlCols[i%bowlCols.length],points:keys.map(k=>({label:k,y:unitsFor(b,groups[k])}))}));
-        const top3=Object.keys(data.menu).map(b=>({b,u:unitsFor(b,entered)})).sort((a,x)=>x.u-a.u).slice(0,3);
-        const profitSeries=top3.map((t,i)=>({label:`${t.b} profit`,color:bowlCols[i],points:keys.map(k=>({label:k,y:unitsFor(t.b,groups[k])*((data.menu[t.b]?.price||0)-bCost(t.b))}))}));
+        const bowlSeries=Object.entries(data.menu).filter(([,m])=>!m.category||m.category==="classic"||m.category==="byo").map(([b])=>b).map((b,i)=>({label:b,color:bowlCols[i%bowlCols.length],points:keys.map(k=>({label:k,y:unitsFor(b,groups[k])}))}));
+        const top3=Object.entries(data.menu).filter(([,m])=>!m.category||m.category==="classic"||m.category==="byo").map(([b])=>b).map(b=>({b,u:unitsFor(b,entered)})).sort((a,x)=>x.u-a.u).slice(0,3);
+        const profitSeries=top3.map((t,i)=>({label:`${t.b} profit`,color:bowlCols[i],points:keys.map(k=>({label:k,y:unitsFor(t.b,groups[k])*(blendedPrice(t.b)-bCost(t.b))}))}));
         return(
           <>
             <div style={{...card,marginBottom:16}}>
@@ -1268,17 +1323,25 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
           if(period==="quarter"){const qs=Math.floor(now.getMonth()/3)*3;const d=new Date(now.getFullYear(),qs-off*3+2);return `${MNz[d.getMonth()]} ${d.getFullYear()}`;}
           return `Dec ${now.getFullYear()-off}`;
         })();return null;})()}
-        <h3 style={{margin:"0 0 4px",fontSize:isMobile?16:20,fontWeight:800}}>Menu Cost Analysis <span style={{fontSize:12,color:T.muted,fontWeight:400}}>· {window.__salesPeriodMonth} prices</span></h3>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <h3 style={{margin:"0 0 4px",fontSize:isMobile?16:20,fontWeight:800}}>Menu Cost Analysis <span style={{fontSize:12,color:T.muted,fontWeight:400}}>· {window.__salesPeriodMonth} prices</span></h3>
+          <div style={{display:"flex",gap:2,background:T.bg,border:`1px solid ${T.border}`,borderRadius:14,padding:2}}>
+            {[["agg","Aggregate"],["small","S"],["medium","M"],["large","L"]].map(([id,lb])=>(
+              <button key={id} onClick={()=>setMcaSz(id)} style={{background:mcaSz===id?T.blue:"transparent",color:mcaSz===id?"#fff":T.slate,border:"none",borderRadius:12,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{lb}</button>
+            ))}
+          </div>
+        </div>
         <p style={{margin:"0 0 14px",fontSize:isMobile?12:13,color:T.muted,lineHeight:1.6}}>Each bowl costed at the prices you were actually paying in this period — the margin that month genuinely made. Flip periods with the arrows above to watch costs creep or ease. Today's costs and what-if testing live on the Menu page.</p>
         <div style={{display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",columnGap:32}}>
-          {Object.entries(data.menu).map(([item,md])=>{
-            const cost=bCostAtApp(item,window.__salesPeriodMonth||"");
-            const fp=md.price?(cost/md.price)*100:0,mg=md.price?((md.price-cost)/md.price)*100:0;
+          {Object.entries(data.menu).filter(([,md])=>!md.category||md.category==="classic"||md.category==="byo").map(([item,md])=>{
+            const cost=mcaSz==="agg"?bCostAtApp(item,window.__salesPeriodMonth||""):costSzAt(item,mcaSz,window.__salesPeriodMonth||"");
+            const sell=mcaSz==="agg"?blendedPrice(item):priceFor(md,mcaSz);
+            const fp=sell?(cost/sell)*100:0,mg=sell?((sell-cost)/sell)*100:0;
             return(
               <div key={item} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 0",borderBottom:`1px solid ${T.border}`}}>
                 <div style={{flex:1}}>
                   <div style={{fontSize:isMobile?13:15,fontWeight:700}}>{item}</div>
-                  <div style={{fontSize:12,color:T.muted}}>Sell ${fmt(md.price)} · Cost ${fmt(cost)}</div>
+                  <div style={{fontSize:12,color:T.muted}}>Sell ${fmt(sell)}{mcaSz==="agg"?" (blended)":""} · Cost ${fmt(cost)}</div>
                 </div>
                 <div style={{textAlign:"right"}}>
                   <Tag c={fp>30?T.coral:T.teal} bg={fp>30?T.coralL:T.tealL} sm>{fp.toFixed(1)}% food cost</Tag>
@@ -1320,7 +1383,7 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
               :<div style={{width:isMobile?90:120,height:isMobile?110:140,borderRadius:12,border:`1px solid ${T.border}`,background:T.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flexShrink:0,gap:8}}><span style={{fontSize:40}}>📄</span><span style={{fontSize:11,color:T.muted,fontWeight:700}}>PDF</span></div>}
             <div style={{flex:1}}>
               <div style={{fontSize:12,color:T.muted,marginBottom:10}}>{img.name}</div>
-              <button onClick={doScan} disabled={scanning} style={{width:"100%",background:T.blue,color:"#fff",border:"none",borderRadius:12,padding:isMobile?"13px":"15px",fontSize:isMobile?15:17,cursor:scanning?"not-allowed":"pointer",fontWeight:800,marginBottom:8,opacity:scanning?0.7:1}}>{scanning?"🔍 Analysing receipt...":"Extract Prices with AI"}</button>
+              <button onClick={doScan} disabled={scanning} style={{width:"100%",background:T.blue,color:"#fff",border:"none",borderRadius:12,padding:isMobile?"13px":"15px",fontSize:isMobile?15:17,cursor:scanning?"not-allowed":"pointer",fontWeight:800,marginBottom:8,opacity:scanning?0.7:1}}>{scanning?"🔍 Analysing receipt...":"Extract Prices with AI · ~$0.02"}</button>
               <button onClick={()=>{setImg(null);setScanRes(null);}} style={{width:"100%",background:"transparent",border:`1px solid ${T.border}`,borderRadius:12,color:T.muted,padding:isMobile?"10px":"12px",fontSize:13,cursor:"pointer"}}>Use different photo</button>
             </div>
           </div>
@@ -1465,38 +1528,50 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,loadingInsigh
   );
 }
 
-// ─── MENU / RECIPE EDITOR ────────────────────────────────────────────────────
-function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,market}){
+// ─── MENU / RECIPE EDITOR ──────────────────────────────────────────────────────────
+function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedPrice,priceFor,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,market}){
   const [sub,setSub]=useState(selIng?"ingredients":"recipes");
   const [histMonth,setHistMonth]=useState("live");
+  const [sel,setSel]=useState(null);
+  const [draft,setDraft]=useState(null); // {sizes:{small,medium,large}, ing:{small:{},medium:{},large:{}}}
+  const [edSz,setEdSz]=useState("medium");
+  const [addSel,setAddSel]=useState("");
+  const [newBowl,setNewBowl]=useState("");
+  const [saving,setSaving]=useState(false);
+  const SZ=["small","medium","large"];
+  const SZL={small:"S",medium:"M",large:"L"};
+  const inp={background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 10px",color:T.navy,fontSize:14,fontFamily:"inherit",outline:"none"};
   const MN2=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const histOptions=(()=>{const o=[];const now=new Date();for(let i=1;i<=12;i++){const d=new Date(now.getFullYear(),now.getMonth()-i);o.push(`${MN2[d.getMonth()]} ${d.getFullYear()}`);}return o;})();
+  const norm=(p,u)=>{const m=/^(\d+(?:\.\d+)?)\s*(kg|g|l|ml|lb|oz)$/i.exec((u||"").trim());if(!m)return p;const n=parseFloat(m[1]);return n>0?p/n:p;};
+  const baseU=(u)=>{const m=/^(\d+(?:\.\d+)?)\s*(kg|g|l|ml|lb|oz)$/i.exec((u||"").trim());return m?m[2].toLowerCase():(u||"unit");};
+  const gIL=n=>{const e=data.ingredients[n];if(!e||!e.length)return 0;const last=e[e.length-1];return norm(last.price,last.unit);};
   const gILAt=(n,monthKey)=>{
     const e=data.ingredients[n];if(!e||!e.length)return 0;
-    const norm=(p,u)=>{const m=/^(\d+(?:\.\d+)?)\s*(kg|g|l|ml|lb|oz)$/i.exec((u||"").trim());if(!m)return p;const n=parseFloat(m[1]);return n>0?p/n:p;};
-    if(monthKey==="live"){const last=e[e.length-1];return norm(last.price,last.unit);}
+    if(monthKey==="live")return gIL(n);
     const mi=MN2.indexOf(monthKey.split(" ")[0]);const y=parseInt(monthKey.split(" ")[1]);
     const cutoff=new Date(y,mi+1,0).getTime();
     const valid=e.filter(x=>new Date(x.date).getTime()<=cutoff);
     if(!valid.length)return 0;
     const last=valid[valid.length-1];return norm(last.price,last.unit);
   };
-  const bCostAt=(item,monthKey)=>{const m=data.menu[item];if(!m)return 0;return Object.entries(m.ing).reduce((sum,[i,q])=>sum+gILAt(i,monthKey)*q,0);};
-  const [sel,setSel]=useState(null);
-  const [draft,setDraft]=useState(null); // {price, ing:{}}
-  const [addSel,setAddSel]=useState("");
-  const [newBowl,setNewBowl]=useState("");
-  const [saving,setSaving]=useState(false);
-  const inp={background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 10px",color:T.navy,fontSize:14,fontFamily:"inherit",outline:"none"};
-  const gIL=n=>{const e=data.ingredients[n];if(!e||!e.length)return 0;const last=e[e.length-1];const m=/^(\d+(?:\.\d+)?)\s*(kg|g|l|ml|lb|oz)$/i.exec((last.unit||"").trim());if(!m)return last.price;const nn=parseFloat(m[1]);return nn>0?last.price/nn:last.price;};
-  const draftCost=d=>Object.entries(d.ing).reduce((s,[i,q])=>s+gIL(i)*(parseFloat(q)||0),0);
-  const open=(name)=>{const m=data.menu[name];setSel(name);setDraft({price:m.price,ing:{...m.ing}});};
+  const ingOf=(m,sz)=>m.ing?.[sz]||m.ing?.medium||{};
+  const costOf=(ingSet,at="live")=>Object.entries(ingSet).reduce((s,[i,q])=>s+gILAt(i,at)*(parseFloat(q)||0),0);
+  const open=(name)=>{
+    const m=data.menu[name];
+    setSel(name);setEdSz("medium");
+    setDraft({
+      sizes:{small:m.sizes?.small??((m.price||18.95)-2),medium:m.sizes?.medium??(m.price||18.95),large:m.sizes?.large??((m.price||18.95)+3)},
+      ing:{small:{...ingOf(m,"small")},medium:{...ingOf(m,"medium")},large:{...ingOf(m,"large")}},
+    });
+  };
   const save=async()=>{
     if(!draft)return;setSaving(true);
-    const cleanIng={};
-    Object.entries(draft.ing).forEach(([i,q])=>{const n=parseFloat(q);if(n>0)cleanIng[i]=n;});
+    const cleanIng={small:{},medium:{},large:{}};
+    SZ.forEach(sz=>Object.entries(draft.ing[sz]).forEach(([i,q])=>{const n=parseFloat(q);if(n>0)cleanIng[sz][i]=n;}));
+    const sizes={small:parseFloat(draft.sizes.small)||0,medium:parseFloat(draft.sizes.medium)||0,large:parseFloat(draft.sizes.large)||0};
     try{
-      await saveMenuItem(sel,parseFloat(draft.price)||0,cleanIng);
+      await saveMenuItem(sel,sizes,cleanIng,data.menu[sel]?.category||"classic");
       await reload();say(`${sel} saved`);setSel(null);setDraft(null);
     }catch(e){say("Save failed",true);}
     setSaving(false);
@@ -1510,11 +1585,24 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload,selIng,set
     const name=newBowl.trim();if(!name)return;
     if(data.menu[name]){say("A bowl with that name exists",true);return;}
     try{
-      await saveMenuItem(name,18.95,{});
+      await saveMenuItem(name,{small:19.95,medium:21.95,large:24.95},{small:{},medium:{},large:{}},"classic");
       await reload();setNewBowl("");
-      setSel(name);setDraft({price:18.95,ing:{}});
-      say(`${name} created — add its ingredients`);
+      setSel(name);setEdSz("medium");
+      setDraft({sizes:{small:19.95,medium:21.95,large:24.95},ing:{small:{},medium:{},large:{}}});
+      say(`${name} created — add its ingredients per size`);
     }catch(e){say("Create failed",true);}
+  };
+  const addIng=(v)=>{
+    if(!v)return;
+    setDraft(p=>({...p,ing:{
+      small:{...p.ing.small,[v]:p.ing.small[v]||0.08},
+      medium:{...p.ing.medium,[v]:p.ing.medium[v]||0.1},
+      large:{...p.ing.large,[v]:p.ing.large[v]||0.125},
+    }}));
+    setAddSel("");
+  };
+  const removeIng=(ing)=>{
+    setDraft(p=>{const n={small:{...p.ing.small},medium:{...p.ing.medium},large:{...p.ing.large}};SZ.forEach(sz=>delete n[sz][ing]);return{...p,ing:n};});
   };
   return(
     <div>
@@ -1525,14 +1613,13 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload,selIng,set
       </div>
       {sub==="ingredients"&&<Ingredients {...{T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,say,reload,market}}/>}
       {sub==="recipes"&&(<div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,flexWrap:"wrap",gap:8}}>
-        <div style={{fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6,maxWidth:640}}>Your bowls, costed live at the latest prices you have recorded. Tap any bowl to adjust portions or price and watch the margin move before you commit. Costs here update the moment a receipt lands.</div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12,flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6,maxWidth:640}}>Your bowls with real per-size portions — tap a bowl, pick S / M / L, and enter what the kitchen actually uses for that size. Margins per size recalculate live. Costs update the moment a receipt lands.</div>
         <div style={{display:"flex",gap:8}}>
-          <input value={newBowl} onChange={e=>setNewBowl(e.target.value)} onKeyDown={e=>e.key==="Enter"&&createBowl()} placeholder="New bowl name..." style={{...inp,width:160}}/>
+          <input value={newBowl} onChange={e=>setNewBowl(e.target.value)} onKeyDown={e=>e.key==="Enter"&&createBowl()} placeholder="New bowl name..." style={{...inp,width:150}}/>
           <button onClick={createBowl} disabled={!newBowl.trim()} style={{background:T.blue,color:"#fff",border:"none",borderRadius:20,padding:"8px 16px",fontSize:13,fontWeight:700,cursor:"pointer",opacity:newBowl.trim()?1:0.5,whiteSpace:"nowrap"}}>+ Add bowl</button>
         </div>
       </div>
-
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16,flexWrap:"wrap"}}>
         <span style={{fontSize:12,color:T.muted,fontWeight:700}}>Cost basis:</span>
         <select value={histMonth} onChange={e=>setHistMonth(e.target.value)} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:16,padding:"7px 14px",color:T.navy,fontSize:13,fontWeight:600,outline:"none"}}>
@@ -1548,47 +1635,86 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload,selIng,set
           <div style={{fontSize:14}}>Add your first bowl above to start tracking margins.</div>
         </div>
       )}
-      <div style={{display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",gap:10}}>
-        {Object.entries(data.menu).map(([name,m])=>{
+      {[["Classic Bowls",["classic",undefined]],["Build Your Own",["byo"]],["Sides",["side"]],["Drinks",["drink"]]].map(([secTitle,cats])=>{
+        const items=Object.entries(data.menu).filter(([,m])=>cats.includes(m.category)||(cats.includes(undefined)&&!m.category));
+        if(!items.length)return null;
+        return(
+        <div key={secTitle} style={{marginBottom:18}}>
+        <div style={{fontSize:11,color:T.muted,fontWeight:800,textTransform:"uppercase",letterSpacing:"1px",margin:"0 0 8px 2px"}}>{secTitle} · {items.length}</div>
+        <div style={{display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",gap:10}}>
+        {items.map(([name,m])=>{
           const isSel=sel===name;
-          const d=isSel&&draft?draft:m;
-          const cost=histMonth!=="live"?bCostAt(name,histMonth):(isSel&&draft?draftCost(draft):bCost(name));
-          const price=parseFloat(d.price)||0;
-          const fp=price?(cost/price)*100:0;
-          const mg=price?((price-cost)/price)*100:0;
+          const simple=m.category==="side"||m.category==="drink";
+          const hist=histMonth!=="live";
+          // header figures: blended (or historical blended-ish using medium view for simplicity in hist mode)
+          const headCost=hist?costOf(ingOf(m,"medium"),histMonth):(isSel&&draft?costOf(draft.ing.medium):bCost(name));
+          const headSell=simple?(m.sizes?.medium??m.price??0):(hist?(m.sizes?.medium??m.price??0):(isSel&&draft?(parseFloat(draft.sizes.medium)||0):blendedPrice(name)));
+          const fp=headSell?(headCost/headSell)*100:0;
+          const mg=headSell?((headSell-headCost)/headSell)*100:0;
           return(
-            <div key={name} onClick={()=>histMonth==="live"&&!isSel&&open(name)} style={{...card,borderColor:isSel?T.blue:T.border,cursor:isSel?"default":"pointer",gridColumn:isSel&&isDesktop?"1 / -1":"auto"}}>
+            <div key={name} onClick={()=>!hist&&!isSel&&open(name)} style={{...card,borderColor:isSel?T.blue:T.border,cursor:isSel||hist?"default":"pointer",gridColumn:isSel&&isDesktop?"1 / -1":"auto"}}>
               <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
                 <div style={{flex:1,minWidth:120}}>
                   <div style={{fontSize:isMobile?15:17,fontWeight:700}}>{name}</div>
-                  <div style={{fontSize:12,color:T.muted}}>Sell ${fmt(price)} · Cost ${fmt(cost)}</div>
+                  <div style={{fontSize:12,color:T.muted}}>{simple?`Sell $${fmt(headSell)} · cost $${fmt(headCost)}${hist?` (${histMonth})`:""}`:hist?`M sell $${fmt(headSell)} · M cost $${fmt(headCost)} (${histMonth})`:isSel?`M sell $${fmt(headSell)} · M cost $${fmt(headCost)}`:`Blended sell $${fmt(headSell)} · cost $${fmt(headCost)}`}</div>
                 </div>
                 <div style={{textAlign:"right"}}>
                   <Tag c={fp>30?T.coral:T.teal} bg={fp>30?T.coralL:T.tealL} sm>{fp.toFixed(1)}% food cost</Tag>
                   <div style={{fontSize:11,color:T.muted,marginTop:3}}>{mg.toFixed(1)}% margin</div>
                 </div>
               </div>
+
               {isSel&&draft&&(
                 <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${T.border}`}} onClick={e=>e.stopPropagation()}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
-                    <span style={{fontSize:12,color:T.muted,fontWeight:700}}>SELL PRICE $</span>
-                    <input type="number" inputMode="decimal" value={draft.price} onChange={e=>setDraft(p=>({...p,price:e.target.value}))} style={{...inp,width:100,textAlign:"right",fontWeight:700}}/>
+
+                  {(m.category==="side"||m.category==="drink")&&(
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+                      <span style={{fontSize:12,color:T.muted,fontWeight:700}}>PRICE $</span>
+                      <input type="number" inputMode="decimal" value={draft.sizes.medium} onChange={e=>setDraft(pr=>({...pr,sizes:{small:e.target.value,medium:e.target.value,large:e.target.value}}))} style={{...inp,width:90,textAlign:"right",fontWeight:700}}/>
+                      <span style={{fontSize:11,color:T.muted}}>single size · cost ${fmt(costOf(draft.ing.medium))}</span>
+                    </div>
+                  )}
+                  {!(m.category==="side"||m.category==="drink")&&(
+                  <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gap:8,marginBottom:14}}>
+                    {SZ.map(sz=>{
+                      const c=costOf(draft.ing[sz]);
+                      const p=parseFloat(draft.sizes[sz])||0;
+                      const f=p?(c/p)*100:0;
+                      return(
+                        <div key={sz} onClick={()=>setEdSz(sz)} style={{background:edSz===sz?T.blueL:T.bg,border:`1.5px solid ${edSz===sz?T.blue:T.border}`,borderRadius:12,padding:"10px 12px",cursor:"pointer"}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                            <span style={{fontSize:13,fontWeight:800,color:edSz===sz?T.blue:T.slate}}>{SZL[sz]}{edSz===sz?" · editing":""}</span>
+                            <span style={{fontSize:12,fontWeight:700,color:f>30?T.coral:T.teal}}>{f.toFixed(1)}%</span>
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <span style={{fontSize:11,color:T.muted}}>$</span>
+                            <input type="number" inputMode="decimal" value={draft.sizes[sz]} onClick={e=>e.stopPropagation()} onChange={e=>setDraft(pr=>({...pr,sizes:{...pr.sizes,[sz]:e.target.value}}))} style={{...inp,width:72,textAlign:"right",fontWeight:700,padding:"5px 8px"}}/>
+                            <span style={{fontSize:11,color:T.muted,marginLeft:"auto"}}>cost ${fmt(c)}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                  {Object.entries(draft.ing).map(([ing,qty])=>(
+                  )}
+
+                  <div style={{fontSize:11,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:6}}>{(m.category==="side"||m.category==="drink")?"Portion · actual quantities used":`${SZL[edSz]} bowl · actual quantities used`}</div>
+                  {Object.entries(draft.ing[edSz]).map(([ing,qty])=>(
                     <div key={ing} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${T.border}`}}>
                       <div style={{flex:1,fontSize:14,fontWeight:600}}>{ing}</div>
-                      <input type="number" inputMode="decimal" step="0.01" value={qty} onChange={e=>setDraft(p=>({...p,ing:{...p.ing,[ing]:e.target.value}}))} style={{...inp,width:80,textAlign:"right"}}/>
-                      <div style={{fontSize:12,color:T.muted,width:44}}>{(()=>{const u=data.ingredients[ing]?.[0]?.unit||"unit";const m=/^(\d+(?:\.\d+)?)\s*(kg|g|l|ml|lb|oz)$/i.exec(u.trim());return m?m[2].toLowerCase():u;})()}</div>
+                      <input type="number" inputMode="decimal" step="0.01" value={qty} onChange={e=>setDraft(p=>{const v=e.target.value;if(m.category==="side"||m.category==="drink"){return{...p,ing:{small:{...p.ing.small,[ing]:v},medium:{...p.ing.medium,[ing]:v},large:{...p.ing.large,[ing]:v}}};}return{...p,ing:{...p.ing,[edSz]:{...p.ing[edSz],[ing]:v}}};})} style={{...inp,width:80,textAlign:"right"}}/>
+                      <div style={{fontSize:12,color:T.muted,width:44}}>{baseU(data.ingredients[ing]?.[0]?.unit)}</div>
                       <div style={{fontSize:13,fontWeight:600,color:T.slate,width:64,textAlign:"right"}}>${fmt(gIL(ing)*(parseFloat(qty)||0))}</div>
-                      <button onClick={()=>setDraft(p=>{const n={...p.ing};delete n[ing];return{...p,ing:n};})} style={{background:"none",border:"none",color:T.coral,fontSize:16,cursor:"pointer",padding:"2px 6px"}}>×</button>
+                      <button onClick={()=>removeIng(ing)} title="Remove from all sizes" style={{background:"none",border:"none",color:T.coral,fontSize:16,cursor:"pointer",padding:"2px 6px"}}>×</button>
                     </div>
                   ))}
+                  {Object.keys(draft.ing[edSz]).length===0&&<div style={{padding:"14px 0",fontSize:13,color:T.muted}}>No ingredients on the {SZL[edSz]} yet — add below (new ingredients are pre-filled on all three sizes as estimates; correct each size to what the kitchen actually uses).</div>}
+
                   <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap"}}>
-                    <select value={addSel} onChange={e=>{const v=e.target.value;if(v){setDraft(p=>({...p,ing:{...p.ing,[v]:p.ing[v]||0.1}}));setAddSel("");}}} style={{...inp,flex:1,minWidth:150}}>
-                      <option value="">Add ingredient...</option>
-                      {Object.keys(data.ingredients).filter(i=>!(i in draft.ing)).map(i=><option key={i} value={i}>{i}</option>)}
+                    <select value={addSel} onChange={e=>addIng(e.target.value)} style={{...inp,flex:1,minWidth:150}}>
+                      <option value="">Add ingredient (all sizes)...</option>
+                      {Object.keys(data.ingredients).filter(i=>!(i in draft.ing.medium)).map(i=><option key={i} value={i}>{i}</option>)}
                     </select>
-                    <button onClick={save} disabled={saving} style={{background:T.teal,color:"#fff",border:"none",borderRadius:10,padding:"10px 22px",fontSize:14,fontWeight:800,cursor:"pointer",opacity:saving?0.6:1}}>{saving?"Saving...":"Save recipe"}</button>
+                    <button onClick={save} disabled={saving} style={{background:T.teal,color:"#fff",border:"none",borderRadius:10,padding:"10px 22px",fontSize:14,fontWeight:800,cursor:"pointer",opacity:saving?0.6:1}}>{saving?"Saving...":"Save all sizes"}</button>
                     <button onClick={()=>{setSel(null);setDraft(null);}} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:10,color:T.muted,padding:"10px 16px",fontSize:13,cursor:"pointer"}}>Cancel</button>
                     <button onClick={()=>delBowl(name)} style={{marginLeft:"auto",background:"none",border:`1px solid ${T.coral}55`,borderRadius:10,color:T.coral,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Delete bowl</button>
                   </div>
@@ -1597,7 +1723,10 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,say,reload,selIng,set
             </div>
           );
         })}
-      </div>
+        </div>
+        </div>
+        );
+      })}
       </div>)}
     </div>
   );

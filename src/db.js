@@ -24,7 +24,16 @@ export async function loadAll() {
   });
 
   const menuObj = {};
-  (menu.data || []).forEach(m => { menuObj[m.name] = { price: Number(m.price), ing: m.ingredients || {} }; });
+  (menu.data || []).forEach(m => {
+    let sizes = m.sizes && m.sizes.medium ? m.sizes : { small: Number(m.price) - 2, medium: Number(m.price), large: Number(m.price) + 3 };
+    let ing = m.ingredients || {};
+    if (!ing.medium) { // migrate old flat recipe: it becomes Medium, other sizes prefilled
+      const med = ing;
+      const scale = (f) => { const o = {}; Object.entries(med).forEach(([k, v]) => { o[k] = Math.round(v * f * 1000) / 1000; }); return o; };
+      ing = { small: scale(0.8), medium: med, large: scale(1.25) };
+    }
+    menuObj[m.name] = { sizes, ing, price: Number(sizes.medium), category: m.category || "classic" };
+  });
 
   const salesObj = {};
   (sales.data || []).forEach(s => { salesObj[s.month] = { loc1: Number(s.loc1), loc2: Number(s.loc2), mix: s.mix || {} }; });
@@ -48,7 +57,7 @@ export async function seedIfEmpty() {
     name, type: s.type || "retail", contact: s.contact || "", phone: s.phone || "",
     email: s.email || "", terms: s.terms || "", delivery: s.delivery || "", notes: s.notes || "",
   })));
-  await supabase.from("menu_items").upsert(Object.entries(DATA.menu).map(([name, m]) => ({ name, price: m.price, ingredients: m.ing })));
+  await supabase.from("menu_items").upsert(Object.entries(DATA.menu).map(([name, m]) => ({ name, price: m.sizes.medium, sizes: m.sizes, ingredients: m.ing, category: m.category || "classic" })));
   await supabase.from("sales").upsert(Object.entries(DATA.sales).map(([month, s]) => ({ month, loc1: s.loc1, loc2: s.loc2, mix: s.mix || {} })));
   await supabase.from("alerts").upsert(Object.entries(DATA.alerts).map(([ingredient, threshold]) => ({ ingredient, threshold })));
 
@@ -116,8 +125,18 @@ export async function upsertSupplier(name, fields) {
   if (error) throw error;
 }
 
-export async function saveMenuItem(name, price, ingredients) {
-  const { error } = await supabase.from("menu_items").upsert({ name, price, ingredients });
+export async function saveMenuItem(name, sizes, ingredients, category) {
+  const { error } = await supabase.from("menu_items").upsert({ name, price: sizes.medium, sizes, ingredients, category: category || "classic" });
+  if (error) throw error;
+}
+
+// ─── Settings (size mix etc.) ───────────────────────────────────────────────
+export async function loadSetting(key, fallback) {
+  const { data } = await supabase.from("settings").select("value").eq("key", key).limit(1);
+  return data && data[0] ? data[0].value : fallback;
+}
+export async function saveSetting(key, value) {
+  const { error } = await supabase.from("settings").upsert({ key, value });
   if (error) throw error;
 }
 
@@ -166,4 +185,16 @@ export async function recordRun(action, byEmail) {
 export async function lastRun(action) {
   const { data } = await supabase.from("usage_log").select("*").eq("action", action).order("day", { ascending: false }).limit(1);
   return data && data[0] ? data[0] : null;
+}
+
+// ─── Monthly scan pool (250/calendar month, shared) ─────────────────────────
+export async function scansThisMonth() {
+  const monthStart = new Date();
+  const first = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, "0")}-01`;
+  const { count } = await supabase.from("usage_log").select("*", { count: "exact", head: true }).eq("action", "scan").gte("day", first);
+  return count || 0;
+}
+export async function recordScan(byEmail) {
+  const today = new Date().toISOString().slice(0, 10);
+  await supabase.from("usage_log").insert({ action: "scan", day: today, by_email: byEmail || "" });
 }
