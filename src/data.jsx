@@ -34,6 +34,62 @@ export const DATA = {
   receipts:[],
 };
 
+// ─── Ingredient catalogue — from Ingredients Master sheet (source of truth) ──
+// Browsable reference: every ingredient, whether or not a purchase price exists yet.
+// Names canonicalised to match recipes (Jalapeño→Jalapeno, Rice→Sushi Rice).
+export const CATALOG = [
+  {"name": "Aburi", "cat": "Preparation", "usedIn": "Chief, Teriyaki", "addon": true, "addonPrice": 1.0, "notes": ""},
+  {"name": "Ahi Tuna", "cat": "Protein", "usedIn": "Aloha", "addon": true, "addonPrice": 3.5, "notes": ""},
+  {"name": "Albacore Tuna", "cat": "Protein", "usedIn": "Smoke, Pacific", "addon": true, "addonPrice": 2.5, "notes": ""},
+  {"name": "Atlantic Salmon", "cat": "Protein", "usedIn": "Cascade, Coast", "addon": true, "addonPrice": 2.5, "notes": ""},
+  {"name": "Avocado", "cat": "Produce", "usedIn": "Aloha, Chief, Coast, Dynamite, Westcoast Salad", "addon": true, "addonPrice": 1.0, "notes": ""},
+  {"name": "Burnt Miso Chili", "cat": "Sauce / dressing", "usedIn": "Coast, Smoke", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Charred Nori Oil", "cat": "Sauce / dressing", "usedIn": "Miso Soup", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Chicken", "cat": "Protein", "usedIn": "Teriyaki", "addon": true, "addonPrice": 2.5, "notes": ""},
+  {"name": "Chili Oil", "cat": "Sauce / dressing", "usedIn": "Chief, Fruit Salad", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Chopped Nori", "cat": "Seasoning / finish", "usedIn": "Westcoast Salad", "addon": true, "addonPrice": 0.0, "notes": ""},
+  {"name": "Cilantro", "cat": "Produce", "usedIn": "Pacific, Fruit Salad", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Crab Salad", "cat": "Prepared protein", "usedIn": "Cascade, Coast, Pacific, Dynamite, Teriyaki, Westcoast Salad", "addon": true, "addonPrice": 1.0, "notes": ""},
+  {"name": "Crunch Mix", "cat": "Crunch / finish", "usedIn": "", "addon": true, "addonPrice": 0.0, "notes": ""},
+  {"name": "Cucumber", "cat": "Produce", "usedIn": "Aloha, Smoke, Pacific, Dynamite, Teriyaki, Westcoast Salad", "addon": true, "addonPrice": 1.0, "notes": ""},
+  {"name": "Edamame", "cat": "Produce", "usedIn": "Chief", "addon": true, "addonPrice": 1.0, "notes": ""},
+  {"name": "Fried Garlic", "cat": "Crunch / finish", "usedIn": "", "addon": true, "addonPrice": 0.0, "notes": ""},
+  {"name": "Fried Onion", "cat": "Crunch / finish", "usedIn": "Westcoast Salad", "addon": true, "addonPrice": 0.0, "notes": ""},
+  {"name": "Furikake", "cat": "Seasoning / finish", "usedIn": "", "addon": true, "addonPrice": 0.0, "notes": ""},
+  {"name": "Gochu Garlic", "cat": "Sauce / dressing", "usedIn": "Coast", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Green Coco Curry", "cat": "Sauce / dressing", "usedIn": "Pacific", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "House-made Shoyu", "cat": "Sauce / dressing", "usedIn": "Aloha", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Housemade Miso Soup", "cat": "Prepared side", "usedIn": "Miso Soup", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Jalapeno", "cat": "Produce", "usedIn": "Aloha, Cascade, Smoke, Teriyaki", "addon": true, "addonPrice": 1.0, "notes": ""},
+  {"name": "Kimchi Cucumber", "cat": "Pickled / fermented", "usedIn": "Chief, Cascade, Coast", "addon": true, "addonPrice": 1.0, "notes": ""},
+  {"name": "Mango", "cat": "Produce", "usedIn": "Coast, Pacific, Teriyaki, Westcoast Salad, Fruit Salad", "addon": true, "addonPrice": 1.0, "notes": ""},
+  {"name": "Maple Soy", "cat": "Sauce / dressing", "usedIn": "Chief, Coast, Dynamite, Teriyaki, Westcoast Salad", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Masago", "cat": "Seasoning / finish", "usedIn": "", "addon": true, "addonPrice": 1.0, "notes": "Appears as a paid finish and under Extra Masago."},
+  {"name": "Miso Ginger Soy", "cat": "Sauce / dressing", "usedIn": "Teriyaki, Westcoast Salad", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Pickled Ginger", "cat": "Pickled / fermented", "usedIn": "Smoke, Dynamite, Teriyaki", "addon": true, "addonPrice": 1.0, "notes": ""},
+  {"name": "Pickled Red Onion", "cat": "Pickled / fermented", "usedIn": "Pacific", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Pineapple", "cat": "Produce", "usedIn": "Chief, Smoke, Pacific, Fruit Salad", "addon": true, "addonPrice": 1.0, "notes": ""},
+  {"name": "Prawn", "cat": "Protein", "usedIn": "Dynamite", "addon": true, "addonPrice": 2.5, "notes": ""},
+  {"name": "Radish", "cat": "Produce", "usedIn": "Dynamite", "addon": true, "addonPrice": 1.0, "notes": ""},
+  {"name": "Scallion", "cat": "Produce", "usedIn": "Aloha, Smoke, Dynamite, Teriyaki, Miso Soup, Westcoast Salad", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Scallops", "cat": "Protein", "usedIn": "", "addon": true, "addonPrice": 2.5, "notes": ""},
+  {"name": "Seaweed Salad", "cat": "Prepared topping", "usedIn": "Aloha", "addon": true, "addonPrice": 1.0, "notes": ""},
+  {"name": "Sesame Seeds", "cat": "Seasoning / finish", "usedIn": "Aloha", "addon": true, "addonPrice": 0.0, "notes": ""},
+  {"name": "Shoyu", "cat": "Sauce / dressing", "usedIn": "Chief, Cascade, Coast, Smoke, Pacific", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Spicy Crab Salad", "cat": "Prepared protein", "usedIn": "Smoke", "addon": true, "addonPrice": 1.0, "notes": ""},
+  {"name": "Spicy Seaweed Salad", "cat": "Prepared topping", "usedIn": "Cascade", "addon": true, "addonPrice": 1.0, "notes": ""},
+  {"name": "Sushi Rice", "cat": "Base / side", "usedIn": "Side Rice", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Sweet Onion", "cat": "Produce", "usedIn": "Aloha, Cascade, Teriyaki", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Tempura Crunch", "cat": "Crunch / finish", "usedIn": "Dynamite, Westcoast Salad", "addon": true, "addonPrice": 0.0, "notes": ""},
+  {"name": "Thai Chili", "cat": "Sauce / dressing", "usedIn": "Cascade, Smoke", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Tofu", "cat": "Protein", "usedIn": "", "addon": true, "addonPrice": 2.5, "notes": ""},
+  {"name": "Togarashi", "cat": "Seasoning / finish", "usedIn": "Chief, Fruit Salad", "addon": true, "addonPrice": 0.0, "notes": ""},
+  {"name": "Wakame Salad", "cat": "Prepared side", "usedIn": "Wakame Salad", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Wasabi Garlic", "cat": "Sauce / dressing", "usedIn": "Chief", "addon": false, "addonPrice": null, "notes": ""},
+  {"name": "Wild Sockeye Salmon", "cat": "Protein", "usedIn": "Chief", "addon": true, "addonPrice": 2.5, "notes": "Served Aburi in the Chief bowl."},
+  {"name": "Yuzu Sriracha", "cat": "Sauce / dressing", "usedIn": "Cascade, Smoke, Dynamite", "addon": false, "addonPrice": null, "notes": ""}
+];
+
 export const gL   = e => e[e.length-1]?.price||0;
 export const gPct = e => e.length<2?0:((gL(e)-e[0].price)/e[0].price)*100;
 export const fmt  = n => (n||0).toLocaleString("en-CA",{minimumFractionDigits:2,maximumFractionDigits:2});

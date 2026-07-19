@@ -69,6 +69,19 @@ export async function seedIfEmpty() {
   return true;
 }
 
+export async function resyncMenu() {
+  // Upsert every seed item over the DB (adds missing, overwrites sizes/recipe/price/category on name match)
+  await supabase.from("menu_items").upsert(
+    Object.entries(DATA.menu).map(([name, m]) => ({ name, price: m.sizes.medium, sizes: m.sizes, ingredients: m.ing, category: m.category || "classic" })),
+    { onConflict: "name" }
+  );
+  // Orphans = live rows not present in the seed (flagged to caller, never auto-deleted here)
+  const { data: rows } = await supabase.from("menu_items").select("name");
+  const seedNames = new Set(Object.keys(DATA.menu));
+  const orphans = (rows || []).map(r => r.name).filter(n => !seedNames.has(n));
+  return { orphans };
+}
+
 export async function saveReceipt(result, location = "all") {
   const fingerprint = `${result.supplier}|${result.date}|${result.items.length}`;
   const { error: rErr } = await supabase.from("receipts").insert({

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
-import { LIGHT, DARK, DATA, gL, gPct, fmt, fmtK, useBreakpoint, Spark, PriceChart, WCP_LOGO, ADDONS } from "./data.jsx";
+import { LIGHT, DARK, DATA, gL, gPct, fmt, fmtK, useBreakpoint, Spark, PriceChart, WCP_LOGO, ADDONS, CATALOG } from "./data.jsx";
 import { supabase, isOwner } from "./supabase.js";
-import { loadAll, seedIfEmpty, saveReceipt, saveSales, addPrice, deletePriceEntry, deleteIngredient, deleteSupplier, upsertSupplier, saveMenuItem, deleteMenuItem, saveAlert, saveMarketChecks, loadMarketChecks, canRunToday, recordRun, loadSetting, saveSetting, scansThisMonth, recordScan } from "./db.js";
+import { loadAll, seedIfEmpty, saveReceipt, saveSales, addPrice, deletePriceEntry, deleteIngredient, deleteSupplier, upsertSupplier, saveMenuItem, deleteMenuItem, resyncMenu, saveAlert, saveMarketChecks, loadMarketChecks, canRunToday, recordRun, loadSetting, saveSetting, scansThisMonth, recordScan } from "./db.js";
 import Login from "./Login.jsx";
 
 const API_HEADERS = () => ({
@@ -573,7 +573,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,flexWrap:"wrap",gap:8}}>
-        <div style={{fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6,maxWidth:560}}>Every price you have recorded, from receipts and manual entries, with the trend since you started tracking ({Object.keys(data.ingredients).length} ingredients). Tap one for its full history, market outlook, and alerts.</div>
+        <div style={{fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6,maxWidth:560}}>Your full ingredient catalogue ({CATALOG.length}), with recorded price trends for the {Object.keys(data.ingredients).length} you've tracked so far. Tap a priced one for its history and alerts; tap an unpriced one to add its first price.</div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <div style={{display:"flex",gap:2,background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:2}}>
             {[["cards","▦"],["list","≡"]].map(([id,ic])=>(
@@ -589,7 +589,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
         <div style={{...card,marginBottom:14,borderColor:T.blue}}>
           <div style={{fontSize:15,fontWeight:700,marginBottom:12}}>Add a price manually</div>
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"2fr 1fr 1fr 2fr 1.4fr auto",gap:8,alignItems:"end"}}>
-            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>INGREDIENT</div><input list="ing-list" value={mIng} onChange={e=>setMIng(e.target.value)} placeholder="e.g. Ahi Tuna" style={inp}/><datalist id="ing-list">{Object.keys(data.ingredients).map(i=><option key={i} value={i}/>)}</datalist></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>INGREDIENT</div><input list="ing-list" value={mIng} onChange={e=>setMIng(e.target.value)} placeholder="e.g. Ahi Tuna" style={inp}/><datalist id="ing-list">{[...new Set([...CATALOG.map(c=>c.name),...Object.keys(data.ingredients)])].sort((a,b)=>a.localeCompare(b)).map(i=><option key={i} value={i}/>)}</datalist></div>
             <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>PRICE $</div><input type="number" inputMode="decimal" value={mPrice} onChange={e=>setMPrice(e.target.value)} placeholder="0.00" style={inp}/></div>
             <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>UNIT</div><select value={mUnit} onChange={e=>setMUnit(e.target.value)} style={inp}>{["lb","kg","each","bottle","case","25kg","10kg","L","bag"].map(u=><option key={u}>{u}</option>)}</select></div>
             <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>SUPPLIER</div><input list="sup-list" value={mSup} onChange={e=>setMSup(e.target.value)} placeholder="e.g. Costco" style={inp}/><datalist id="sup-list">{Object.keys(data.suppliers).map(s=><option key={s} value={s}/>)}</datalist></div>
@@ -599,28 +599,55 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
         </div>
       )}
 
-      {Object.keys(data.ingredients).length===0&&(
+      {iView==="cards"&&Object.keys(data.ingredients).length===0&&(
         <div style={{...card,textAlign:"center",padding:"48px 24px",color:T.muted}}>
           <div style={{fontSize:44,marginBottom:12}}>🥑</div>
-          <div style={{fontSize:16,fontWeight:700,color:T.slate,marginBottom:6}}>No ingredients yet</div>
-          <div style={{fontSize:14}}>Scan your first receipt or add a price manually to get started.</div>
+          <div style={{fontSize:16,fontWeight:700,color:T.slate,marginBottom:6}}>No priced ingredients yet</div>
+          <div style={{fontSize:14}}>Switch to the list (≡) to browse the full catalogue, or scan a receipt / add a price to start tracking.</div>
         </div>
       )}
-      {iView==="list"&&(
-        <div style={{...card,padding:0,overflow:"hidden"}}>
-          {Object.entries(data.ingredients).map(([name,entries],i,arr)=>{
-            const lat=gL(entries),ch=gPct(entries),thr=data.alerts[name],ov=thr&&lat>thr;
-            return(
-              <div key={name} onClick={()=>{setSelIng(name);setIView("cards");}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderBottom:i<arr.length-1?`1px solid ${T.border}`:"none",cursor:"pointer"}}>
-                <div style={{flex:1,fontSize:13,fontWeight:600}}>{name}{ov&&<span style={{marginLeft:6,fontSize:11,color:T.coral}}>{"\u26a0"}</span>}</div>
-                <div style={{fontSize:12,color:T.muted}}>{entries[entries.length-1]?.supplier}</div>
-                <div style={{fontSize:13,fontWeight:700,width:90,textAlign:"right"}}>${fmt(lat)}<span style={{fontSize:10,color:T.muted,fontWeight:400}}>/{entries[0]?.unit}</span></div>
-                <div style={{fontSize:12,fontWeight:700,color:ch>0?T.coral:T.teal,width:64,textAlign:"right"}}>{ch>0?"+":""}{ch.toFixed(1)}%</div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {iView==="list"&&(()=>{
+        const catByName=Object.fromEntries(CATALOG.map(c=>[c.name,c]));
+        const names=[...new Set([...CATALOG.map(c=>c.name),...Object.keys(data.ingredients)])];
+        const catOf=n=>catByName[n]?.cat||"Other";
+        const order=[];CATALOG.forEach(c=>{if(!order.includes(c.cat))order.push(c.cat);});order.push("Other");
+        const groups={};names.forEach(n=>{const c=catOf(n);(groups[c]=groups[c]||[]).push(n);});
+        return(
+          <div>
+            {order.filter(c=>groups[c]&&groups[c].length).map(cat=>{
+              const rows=groups[cat].slice().sort((a,b)=>a.localeCompare(b));
+              return(
+                <div key={cat} style={{marginBottom:14}}>
+                  <div style={{fontSize:11,color:T.muted,fontWeight:800,textTransform:"uppercase",letterSpacing:"1px",margin:"0 0 6px 2px"}}>{cat} · {rows.length}</div>
+                  <div style={{...card,padding:0,overflow:"hidden"}}>
+                    {rows.map((name,i)=>{
+                      const entries=data.ingredients[name],has=entries&&entries.length,meta=catByName[name],last=i===rows.length-1;
+                      if(has){
+                        const lat=gL(entries),ch=gPct(entries),thr=data.alerts[name],ov=thr&&lat>thr;
+                        return(
+                          <div key={name} onClick={()=>{setSelIng(name);setIView("cards");}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderBottom:last?"none":`1px solid ${T.border}`,cursor:"pointer"}}>
+                            <div style={{flex:1,fontSize:13,fontWeight:600}}>{name}{ov&&<span style={{marginLeft:6,fontSize:11,color:T.coral}}>{"\u26a0"}</span>}</div>
+                            <div style={{fontSize:12,color:T.muted}}>{entries[entries.length-1]?.supplier}</div>
+                            <div style={{fontSize:13,fontWeight:700,width:90,textAlign:"right"}}>${fmt(lat)}<span style={{fontSize:10,color:T.muted,fontWeight:400}}>/{entries[0]?.unit}</span></div>
+                            <div style={{fontSize:12,fontWeight:700,color:ch>0?T.coral:T.teal,width:64,textAlign:"right"}}>{ch>0?"+":""}{ch.toFixed(1)}%</div>
+                          </div>
+                        );
+                      }
+                      return(
+                        <div key={name} onClick={()=>{setMIng(name);setShowAdd(true);}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderBottom:last?"none":`1px solid ${T.border}`,cursor:"pointer"}}>
+                          <div style={{flex:1,fontSize:13,fontWeight:600,color:T.slate}}>{name}{meta&&meta.addon&&meta.addonPrice>0?<span style={{marginLeft:8,fontSize:10,color:T.muted}}>add-on ${fmt(meta.addonPrice)}</span>:null}</div>
+                          <div style={{fontSize:11,color:T.muted,fontStyle:"italic"}}>{meta&&meta.usedIn?`in ${meta.usedIn.split(", ").filter(Boolean).length} item(s)`:"add-on / BYO"}</div>
+                          <div style={{fontSize:12,fontWeight:700,color:T.blue,width:100,textAlign:"right"}}>+ add price</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
       {iView==="cards"&&(
       <div style={{display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",gap:10}}>
         {Object.entries(data.ingredients).map(([name,entries])=>{
@@ -1538,6 +1565,21 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedP
   const [addSel,setAddSel]=useState("");
   const [newBowl,setNewBowl]=useState("");
   const [saving,setSaving]=useState(false);
+  const [resyncing,setResyncing]=useState(false);
+  const doResync=async()=>{
+    if(!window.confirm("Resync the menu from the built-in seed?\n\nThis ADDS any items missing from the menu and OVERWRITES the sizes, recipe and prices of existing items with the seed (spreadsheet) values. In-app edits to those items will be replaced."))return;
+    setResyncing(true);
+    try{
+      const {orphans}=await resyncMenu();
+      if(orphans.length){
+        const del=window.confirm(`${orphans.length} item(s) are on the menu but NOT in the seed:\n\n${orphans.join(", ")}\n\nOK = delete them so the menu matches the seed.\nCancel = keep them.`);
+        if(del){for(const n of orphans)await deleteMenuItem(n);}
+      }
+      await reload();
+      say(orphans.length?`Menu resynced · ${orphans.length} orphan(s) reviewed`:"Menu resynced from seed");
+    }catch(e){console.error(e);say("Resync failed",true);}
+    setResyncing(false);
+  };
   const SZ=["small","medium","large"];
   const SZL={small:"S",medium:"M",large:"L"};
   const inp={background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 10px",color:T.navy,fontSize:14,fontFamily:"inherit",outline:"none"};
@@ -1618,6 +1660,7 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedP
         <div style={{display:"flex",gap:8}}>
           <input value={newBowl} onChange={e=>setNewBowl(e.target.value)} onKeyDown={e=>e.key==="Enter"&&createBowl()} placeholder="New bowl name..." style={{...inp,width:150}}/>
           <button onClick={createBowl} disabled={!newBowl.trim()} style={{background:T.blue,color:"#fff",border:"none",borderRadius:20,padding:"8px 16px",fontSize:13,fontWeight:700,cursor:"pointer",opacity:newBowl.trim()?1:0.5,whiteSpace:"nowrap"}}>+ Add bowl</button>
+          <button onClick={doResync} disabled={resyncing} title="Overwrite the menu with the built-in seed (spreadsheet) values" style={{background:"transparent",color:T.slate,border:`1px solid ${T.border}`,borderRadius:20,padding:"8px 16px",fontSize:13,fontWeight:700,cursor:resyncing?"not-allowed":"pointer",opacity:resyncing?0.6:1,whiteSpace:"nowrap"}}>{resyncing?"Resyncing...":"⟳ Resync from seed"}</button>
         </div>
       </div>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16,flexWrap:"wrap"}}>
