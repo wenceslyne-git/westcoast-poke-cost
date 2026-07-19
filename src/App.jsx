@@ -13,6 +13,22 @@ const API_HEADERS = () => ({
 });
 const MODEL="claude-sonnet-4-6";
 
+// Extract the model's JSON from an API response. With the web-search tool the content
+// array holds several blocks ([preamble text] → [tool use] → [tool result] → [final JSON text]),
+// so grabbing the first text block fails. Walk text blocks newest-first and parse the {...} slice.
+const pickJson=(out)=>{
+  const texts=(out?.content||[]).filter(b=>b.type==="text").map(b=>b.text||"");
+  for(let k=texts.length-1;k>=0;k--){
+    const t=texts[k].replace(/```json|```/g,"");
+    const s=t.indexOf("{"),e=t.lastIndexOf("}");
+    if(s!==-1&&e>s){try{return JSON.parse(t.slice(s,e+1));}catch{}}
+  }
+  const all=texts.join("\n").replace(/```json|```/g,"");
+  const s=all.indexOf("{"),e=all.lastIndexOf("}");
+  if(s!==-1&&e>s)return JSON.parse(all.slice(s,e+1));
+  throw new Error("No JSON in model response");
+};
+
 // Receipt categories. Food categories feed the cost tracker; the rest are kept in the
 // downloadable parsed dataset but never counted in food cost or profitability.
 const RECEIPT_CATS=["Protein","Base","Vegetables","Fruit","Sauces","Toppings","Packaging","Drinks","Cleaning","Equipment","Other"];
@@ -242,8 +258,7 @@ export default function App(){
         setScanning(false);
         return;
       }
-      const txt=out.content?.find(b=>b.type==="text")?.text||"";
-      const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
+      const parsed=pickJson(out);
       if(parsed.error){say(parsed.error,true);}
       else{
         recordScan(session?.user?.email).catch(()=>{});
@@ -309,8 +324,7 @@ export default function App(){
     try{
       const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:800,tools:[{type:"web_search_20250305",name:"web_search",max_uses:2}],messages:[{role:"user",content:`Search current price of "${ing}" per ${unit} ${where}. Return ONLY JSON no markdown: {"marketRange":{"low":0.00,"high":0.00},"sources":[{"store":"Name","price":0.00,"url":"real page URL or empty string","notes":"brief"}],"verdict":"good|high|very_high","recommendation":"one actionable sentence"}. Every source MUST include the real url of the page the price came from; if you cannot verify a price with a real page, omit it. No data: {"error":"No reliable price data"}`}]})});
       const out=await r.json();
-      const txt=out.content?.find(b=>b.type==="text")?.text||"";
-      const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
+      const parsed=pickJson(out);
       if(parsed.error)setChecks(p=>({...p,[ing]:{status:"err",msg:parsed.error}}));
       else{
         setChecks(p=>({...p,[ing]:{status:"ok",data:parsed,paying:price,at:new Date().toLocaleDateString("en-CA"),scope:usePref?"preferred":"market"}}));
@@ -362,8 +376,7 @@ export default function App(){
     try{
       const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:1500,messages:[{role:"user",content:`You are a food cost analyst for Westcoast Poké, a two-location poke restaurant in Vancouver BC. Data: ${buildDataSummary()}\n\nData notes: prices in ingredients are what the restaurant actually pays (receipts). marketSignals are advisory web-check results with dates — use them for comparisons and direction but never treat them as paid prices, and always cite the check date. Give 4-5 specific actionable insights referencing actual numbers, bowls and ingredients from the data. If marketSignals exist, one insight should compare paid vs market with the monthly dollar impact. Also choose ONE focus bowl to push this month using margins, market direction and sales mix together. Return ONLY JSON no markdown: {"headline":"one punchy sentence on the biggest issue or opportunity","focus":{"bowl":"name","reason":"2 sentences: why this bowl now, citing data","contingency":"one sentence: what to revisit if conditions change"},"insights":[{"priority":"high|medium|low","icon":"emoji","title":"short title with a number","detail":"2-3 sentences with specific numbers","action":"exactly what to do next"}]}`}]})});
       const out=await res.json();
-      const txt=out.content?.find(b=>b.type==="text")?.text||"";
-      setAiInsights(JSON.parse(txt.replace(/```json|```/g,"").trim()));
+      setAiInsights(pickJson(out));
     }catch(e){say("Could not generate insights — try again",true);}
     setLoadingInsights(false);
   };
@@ -954,11 +967,11 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
     try{
       const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:1200,tools:[{type:"web_search_20250305",name:"web_search",max_uses:2}],messages:[{role:"user",content:`Find wholesale/trade food suppliers within ${dRad}km of ${dLoc==="loc1"?"West 8th & Cambie, Vancouver BC":dLoc==="loc2"?"Ironwood Plaza, Richmond BC":"a poke restaurant with locations at West 8th & Cambie Vancouver BC and Ironwood Plaza Richmond BC"}. Measure distance from ${dLoc==="both"?"whichever location is nearer":"that location only"}. Category: ${dCat==="Any"?"seafood, produce or dry goods":dCat}. Prioritise wholesalers and distributors over retail. Return ONLY JSON no markdown: {"suppliers":[{"name":"","category":"","distance":"~Xkm from <location>","address":"","notes":"one line: what they offer, trade terms if known"}]}. Max 6 results. If nothing found: {"suppliers":[]}`}]})});
       const out=await r.json();
-      const txt=out.content?.find(b=>b.type==="text")?.text||"";
-      const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
+      if(!r.ok){say((out?.error?.message||`API error ${r.status}`).slice(0,140),true);setDBusy(false);return;}
+      const parsed=pickJson(out);
       setDResults(parsed.suppliers||[]);
       if(!(parsed.suppliers||[]).length)say("No suppliers found — try a wider radius",true);
-    }catch(e){say("Search failed — try again",true);}
+    }catch(e){console.error(e);say("Search failed — try again",true);}
     setDBusy(false);
   };
   const addPreferred=async(r)=>{
@@ -984,8 +997,8 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
       try{
         const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:900,tools:[{type:"web_search_20250305",name:"web_search",max_uses:2}],messages:[{role:"user",content:`Search current prices at "${supName}" in Vancouver BC area for these restaurant ingredients: ${ingList}. Return ONLY JSON no markdown: {"found":[{"ingredient":"","price":0.00,"unit":"","notes":"brief"}]}. Only include items with a genuine price signal. If none: {"found":[]}`}]})});
         const out=await r.json();
-        const txt=out.content?.find(b=>b.type==="text")?.text||"";
-        const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
+        if(!r.ok){results[supName]={found:[],err:true};continue;}
+        const parsed=pickJson(out);
         results[supName]={found:parsed.found||[],at:new Date().toLocaleDateString("en-CA")};
       }catch(e){results[supName]={found:[],err:true};}
     }
