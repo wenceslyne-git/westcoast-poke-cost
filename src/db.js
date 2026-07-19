@@ -88,6 +88,8 @@ export async function saveReceipt(result, location = "all") {
     fingerprint, supplier: result.supplier || "Unknown",
     date: result.date || new Date().toISOString().slice(0, 10),
     item_count: result.items.length, location,
+    gross_total: result.gross_total != null ? result.gross_total : null,
+    invoice_total: result.invoice_total != null ? result.invoice_total : null,
   });
   if (rErr && !rErr.message?.includes("duplicate")) throw rErr;
 
@@ -109,6 +111,31 @@ export async function saveReceipt(result, location = "all") {
 export async function saveSales(month, loc1, loc2, mix = {}) {
   const { error } = await supabase.from("sales").upsert({ month, loc1, loc2, mix });
   if (error) throw error;
+}
+
+// ─── Receipt history (item 13) ──────────────────────────────────────────────
+export async function loadReceipts() {
+  const { data, error } = await supabase.from("receipts").select("*").order("date", { ascending: false });
+  if (error) return [];
+  return (data || []).map(r => ({
+    id: r.id, supplier: r.supplier, date: r.date, location: r.location || "all",
+    itemCount: r.item_count || 0,
+    gross: r.gross_total != null ? Number(r.gross_total) : null,
+    invoice: r.invoice_total != null ? Number(r.invoice_total) : null,
+    fingerprint: r.fingerprint,
+  }));
+}
+
+// Full cascade: removes the receipt row AND the ingredient_prices lines it created
+// (matched by supplier + date — the fingerprint basis). Trends/MCA recalculate.
+export async function deleteReceiptCascade(receipt) {
+  const { supplier, date, id } = receipt;
+  if (supplier && date) {
+    const { error: pErr } = await supabase.from("ingredient_prices").delete().eq("supplier", supplier).eq("date", date);
+    if (pErr) throw pErr;
+  }
+  const { error: rErr } = await supabase.from("receipts").delete().eq("id", id);
+  if (rErr) throw rErr;
 }
 
 // ─── Manual entry, edits & deletes ──────────────────────────────────────────
