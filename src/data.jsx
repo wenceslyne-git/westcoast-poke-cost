@@ -1,4 +1,4 @@
-// ─── Westcoast Poké Cost Intelligence — data, themes, helpers ────────────────
+// ─── Westcoast Poké Food Cost Intelligence — data, themes, helpers ────────────────
 import { useState, useEffect } from "react";
 
 export const LIGHT = {

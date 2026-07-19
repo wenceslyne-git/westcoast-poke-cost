@@ -3,6 +3,7 @@ import { LIGHT, DARK, DATA, gL, gPct, fmt, fmtK, useBreakpoint, Spark, PriceChar
 import { supabase, isOwner } from "./supabase.js";
 import { loadAll, seedIfEmpty, saveReceipt, saveSales, addPrice, deletePriceEntry, deleteIngredient, deleteSupplier, upsertSupplier, saveMenuItem, deleteMenuItem, resyncMenu, saveAlert, saveMarketChecks, loadMarketChecks, canRunToday, recordRun, loadSetting, saveSetting, scansThisMonth, recordScan } from "./db.js";
 import Login from "./Login.jsx";
+import * as XLSX from "xlsx";
 
 const API_HEADERS = () => ({
   "Content-Type":"application/json",
@@ -12,6 +13,12 @@ const API_HEADERS = () => ({
 });
 const MODEL="claude-sonnet-4-6";
 
+// Receipt categories. Food categories feed the cost tracker; the rest are kept in the
+// downloadable parsed dataset but never counted in food cost or profitability.
+const RECEIPT_CATS=["Protein","Base","Vegetables","Fruit","Sauces","Toppings","Packaging","Drinks","Cleaning","Equipment","Other"];
+const COGS_CATS=new Set(["Protein","Base","Vegetables","Fruit","Sauces","Toppings","Drinks"]);
+const isCOGSCat=c=>COGS_CATS.has(c||"Other");
+
 
 const NavIcon=({id,size=22})=>{
   const p={fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"};
@@ -20,6 +27,17 @@ const NavIcon=({id,size=22})=>{
   if(id==="menu")return(<svg width={size} height={size} viewBox="0 0 24 24"><path d="M3.5 12.5h17a8.5 6.5 0 0 1-17 0z" {...p}/><line x1="6.5" y1="9.5" x2="17" y2="3.5" {...p}/><line x1="9.5" y1="10" x2="19.5" y2="5" {...p}/></svg>);
   if(id==="suppliers")return(<svg width={size} height={size} viewBox="0 0 24 24"><path d="M6 2.5h12v19l-2-1.6-2 1.6-2-1.6-2 1.6-2-1.6-2 1.6z" {...p}/><line x1="9" y1="7.5" x2="15" y2="7.5" {...p}/><line x1="9" y1="11" x2="15" y2="11" {...p}/><line x1="9" y1="14.5" x2="13" y2="14.5" {...p}/></svg>);
   if(id==="insights")return(<svg width={size} height={size} viewBox="0 0 24 24"><path d="M10 3.5l1.6 4.4L16 9.5l-4.4 1.6L10 15.5l-1.6-4.4L4 9.5l4.4-1.6z" {...p}/><path d="M18 13l0.9 2.3L21 16.2l-2.1 0.9L18 19.4l-0.9-2.3-2.1-0.9 2.1-0.9z" {...p}/><path d="M17.5 3.5l0.6 1.6 1.6 0.6-1.6 0.6-0.6 1.6-0.6-1.6-1.6-0.6 1.6-0.6z" {...p}/></svg>);
+  return null;
+};
+
+// Header action icons — SVG only, no emoji (refresh=update/time, camera, moon/sun, door+arrow)
+const HdrIcon=({id,size=20})=>{
+  const p={fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"};
+  if(id==="refresh")return(<svg width={size} height={size} viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66" {...p}/><polyline points="20,4 20,8 16,8" {...p}/><polyline points="12,8 12,12 15,14" {...p}/></svg>);
+  if(id==="camera")return(<svg width={size} height={size} viewBox="0 0 24 24"><path d="M4 8h3l1.5-2h7L17 8h3a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 20 20H4a1.5 1.5 0 0 1-1.5-1.5v-9A1.5 1.5 0 0 1 4 8z" {...p}/><circle cx="12" cy="13" r="3.4" {...p}/></svg>);
+  if(id==="moon")return(<svg width={size} height={size} viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" {...p}/></svg>);
+  if(id==="sun")return(<svg width={size} height={size} viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" {...p}/><g {...p}><line x1="12" y1="2.5" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21.5"/><line x1="2.5" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21.5" y2="12"/><line x1="5.2" y1="5.2" x2="6.9" y2="6.9"/><line x1="17.1" y1="17.1" x2="18.8" y2="18.8"/><line x1="18.8" y1="5.2" x2="17.1" y2="6.9"/><line x1="6.9" y1="17.1" x2="5.2" y2="18.8"/></g></svg>);
+  if(id==="signout")return(<svg width={size} height={size} viewBox="0 0 24 24"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" {...p}/><line x1="4" y1="12" x2="15" y2="12" {...p}/><polyline points="11,8 15,12 11,16" {...p}/></svg>);
   return null;
 };
 
@@ -50,8 +68,6 @@ export default function App(){
         if(!cancelled)setData(d);
         const mk=await loadMarketChecks();
         if(!cancelled)setMarket(mk);
-        const mix=await loadSetting("size_mix",{small:25,medium:50,large:25});
-        if(!cancelled&&mix)setSizeMix(mix);
         if(!cancelled)await refreshCaps();
       }catch(e){console.error("DB load failed",e);}
       if(!cancelled)setDbLoading(false);
@@ -75,7 +91,6 @@ export default function App(){
   const [scanLoc,setScanLoc]=useState("all");
   const [insightsStale,setInsightsStale]=useState(false);
   const [market,setMarket]=useState({});
-  const [sizeMix,setSizeMix]=useState({small:25,medium:50,large:25});
   const [caps,setCaps]=useState({});
   const refreshCaps=async()=>{
     const out={};
@@ -110,16 +125,28 @@ export default function App(){
     if(!valid.length)return 0;
     const last=valid[valid.length-1];return normPrice(last.price,last.unit);
   };
-  const costSzAt=(item,sz,monthKey)=>{const m=data.menu[item];if(!m)return 0;return Object.entries(ingFor(m,sz)).reduce((sum,[i,q])=>sum+gILAtApp(i,monthKey)*q,0);};
-  const bCostAtApp=(item,monthKey)=>{const w=mixW();return SIZES.reduce((s,sz)=>s+costSzAt(item,sz,monthKey)*w[sz],0);};
   const SIZES=["small","medium","large"];
   const isBowl=m=>!m.category||m.category==="classic"||m.category==="byo";
-  const mixW=()=>{const t=(sizeMix.small||0)+(sizeMix.medium||0)+(sizeMix.large||0)||100;return{small:(sizeMix.small||0)/t,medium:(sizeMix.medium||0)/t,large:(sizeMix.large||0)/t};};
   const ingFor=(m,sz)=>m.ing?.[sz]||m.ing?.medium||m.ing||{};
   const priceFor=(m,sz)=>m.sizes?.[sz]??m.price??0;
   const costSz=(item,sz)=>{const m=data.menu[item];if(!m)return 0;return Object.entries(ingFor(m,sz)).reduce((s,[i,q])=>s+gIL(i)*q,0);};
+  const costSzAt=(item,sz,monthKey)=>{const m=data.menu[item];if(!m)return 0;return Object.entries(ingFor(m,sz)).reduce((sum,[i,q])=>sum+gILAtApp(i,monthKey)*q,0);};
+
+  const months=Object.keys(data.sales).sort((a,b)=>new Date(a)-new Date(b));
+
+  // ── Sales mix model: mix.bowls[bowl][size]={loc1,loc2} units · mix.other[item]={loc1,loc2} ──
+  const bowlUnits=(mon,bowl,sz,l)=>{const v=data.sales[mon]?.mix?.bowls?.[bowl]?.[sz];if(!v)return 0;return l==="loc1"?(v.loc1||0):l==="loc2"?(v.loc2||0):((v.loc1||0)+(v.loc2||0));};
+  const sizeAgg=(mon,l)=>{const b=data.sales[mon]?.mix?.bowls||{};const o={small:0,medium:0,large:0};Object.keys(b).forEach(bw=>SIZES.forEach(sz=>{o[sz]+=bowlUnits(mon,bw,sz,l);}));return o;};
+  const bowlUnitsTotal=(mon,bowl,l)=>SIZES.reduce((s,sz)=>s+bowlUnits(mon,bowl,sz,l),0);
+  const totalBowls=(mon,l)=>{const a=sizeAgg(mon,l);return a.small+a.medium+a.large;};
+
+  // Blended weighting derives from the most recent month with bowl counts (fallback 25/50/25)
+  const derivedMix=(()=>{for(let i=months.length-1;i>=0;i--){const a=sizeAgg(months[i],"all");if(a.small+a.medium+a.large>0)return a;}return{small:25,medium:50,large:25};})();
+  const mixW=()=>{const t=(derivedMix.small||0)+(derivedMix.medium||0)+(derivedMix.large||0)||1;return{small:(derivedMix.small||0)/t,medium:(derivedMix.medium||0)/t,large:(derivedMix.large||0)/t};};
+
   const blendedPrice=item=>{const m=data.menu[item];if(!m)return 0;const w=mixW();return SIZES.reduce((s,sz)=>s+priceFor(m,sz)*w[sz],0);};
   const bCost=item=>{const m=data.menu[item];if(!m)return 0;const w=mixW();return SIZES.reduce((s,sz)=>s+costSz(item,sz)*w[sz],0);};
+  const bCostAtApp=(item,monthKey)=>{const w=mixW();return SIZES.reduce((s,sz)=>s+costSzAt(item,sz,monthKey)*w[sz],0);};
   const bFCP=item=>{const p=blendedPrice(item);if(!p)return 0;return(bCost(item)/p)*100;};
   const bMargin=item=>{const p=blendedPrice(item);if(!p)return 0;return((p-bCost(item))/p)*100;};
 
@@ -127,30 +154,46 @@ export default function App(){
   const activeAlerts=Object.entries(data.alerts).filter(([i,t])=>{const e=data.ingredients[i];return e&&e.length&&gL(e)>t;});
   const locName=l=>l==="loc1"?data.locations.loc1:l==="loc2"?data.locations.loc2:"All Locations";
 
-  const cRev=(mon,l)=>{const s=data.sales[mon];if(!s)return 0;if(l==="loc1")return s.loc1;if(l==="loc2")return s.loc2;return(s.loc1||0)+(s.loc2||0);};
-  const cCOGS=(mon,l)=>{const s=data.sales[mon];if(!s||!s.mix)return 0;return Object.entries(data.menu).reduce((t,[item])=>{const mix=s.mix[item];if(!mix)return t;const sold=l==="loc1"?(mix.loc1||0):l==="loc2"?(mix.loc2||0):((mix.loc1||0)+(mix.loc2||0));return t+bCost(item)*sold;},0);};
+  // Total sales $ is entered manually per location. Bowl revenue is derived from counts × size price.
+  const cRev=(mon,l)=>{const s=data.sales[mon];if(!s)return 0;if(l==="loc1")return s.loc1||0;if(l==="loc2")return s.loc2||0;return(s.loc1||0)+(s.loc2||0);};
+  const cBowlRev=(mon,l)=>{const bowls=Object.keys(data.sales[mon]?.mix?.bowls||{});return bowls.reduce((t,bw)=>t+SIZES.reduce((s,sz)=>s+bowlUnits(mon,bw,sz,l)*priceFor(data.menu[bw]||{},sz),0),0);};
+  const cCOGS=(mon,l)=>{const bowls=Object.keys(data.sales[mon]?.mix?.bowls||{});return bowls.reduce((t,bw)=>t+SIZES.reduce((s,sz)=>s+bowlUnits(mon,bw,sz,l)*costSz(bw,sz),0),0);}; // bowl food cost $ (add-ons excluded)
+  const cOtherRev=(mon,l)=>Math.max(0,cRev(mon,l)-cBowlRev(mon,l)); // derived: drinks, add-ons, extras
 
-  const months=Object.keys(data.sales).sort((a,b)=>new Date(a)-new Date(b));
   const latMon=months[months.length-1];
   const prevMon=months[months.length-2];
   const locKey=loc==="all"?"all":loc;
   const rev=latMon?cRev(latMon,locKey):0;
+  const bowlRev=latMon?cBowlRev(latMon,locKey):0;
+  const otherRev=latMon?cOtherRev(latMon,locKey):0;
   const cogs=latMon?cCOGS(latMon,locKey):0;
-  const gp=rev-cogs;
-  const fcp=rev?(cogs/rev)*100:0;
+  const bowlsSold=latMon?totalBowls(latMon,locKey):0;
+  const gp=bowlRev-cogs;                       // bowl gross profit
+  const fcp=bowlRev?(cogs/bowlRev)*100:0;       // bowl food cost %
+  const avgBowl=bowlsSold?bowlRev/bowlsSold:0;
   const prevRev=prevMon?cRev(prevMon,locKey):0;
   const revDelta=prevRev?((rev-prevRev)/prevRev)*100:0;
+  const prevBowlRev=prevMon?cBowlRev(prevMon,locKey):0;
+  const prevCogs=prevMon?cCOGS(prevMon,locKey):0;
+  const prevFcp=prevBowlRev?(prevCogs/prevBowlRev)*100:0;
+  const fcpDelta=prevFcp?fcp-prevFcp:0;
+  const hasData=!!latMon&&bowlsSold>0;
 
-  const headline=fcp>35
-    ?{pre:"Margins are ",em:"under pressure.",sub:`Food COGS at ${fcp.toFixed(1)}% — ${(fcp-30).toFixed(1)}pts above the 30% benchmark.`,color:T.coral}
-    :fcp>30
-    ?{pre:"Margins are ",em:"tightening.",sub:`Food COGS at ${fcp.toFixed(1)}% — worth a closer look at protein costs.`,color:T.amber}
-    :revDelta>5
-    ?{pre:"Revenue is ",em:"growing.",sub:`Up ${revDelta.toFixed(1)}% vs last month. Keep an eye on COGS tracking with it.`,color:T.teal}
-    :{pre:"Operations look ",em:"steady.",sub:`Food COGS at ${fcp.toFixed(1)}% — within the healthy 28–32% range.`,color:T.teal};
-
-  const worstBowl=Object.entries(data.menu).map(([n])=>({n,fcp:bFCP(n)})).sort((a,b)=>b.fcp-a.fcp)[0];
+  const worstBowl=Object.entries(data.menu).filter(([,m])=>isBowl(m)).map(([n])=>({n,fcp:bFCP(n)})).sort((a,b)=>b.fcp-a.fcp)[0];
   const biggestMover=movers[0];
+  const driverPhrase=(()=>{
+    if(biggestMover&&Math.abs(biggestMover.ch)>=8)return `${biggestMover.n} ${biggestMover.ch>0?"up":"down"} ${Math.abs(biggestMover.ch).toFixed(0)}% is your biggest cost mover`;
+    if(worstBowl&&worstBowl.fcp>30)return `${worstBowl.n} is your thinnest bowl at ${worstBowl.fcp.toFixed(0)}% food cost`;
+    return null;
+  })();
+  const headline=!hasData
+    ?{pre:"Ready when ",em:"you are.",sub:"Enter a month's total sales and upload your bowl counts to see your margins.",color:T.blue}
+    :fcp>35
+    ?{pre:"Margins are ",em:"under pressure.",sub:`Bowls keep just ${(100-fcp).toFixed(0)}¢ of every dollar — food cost ${fcp.toFixed(1)}%, above the 30% line.${driverPhrase?" "+driverPhrase+".":""}`,color:T.coral}
+    :fcp>30
+    ?{pre:"Margins are ",em:"tightening.",sub:`Food cost is ${fcp.toFixed(1)}%, a touch above the 30% target.${driverPhrase?" "+driverPhrase+".":""}`,color:T.amber}
+    :{pre:"Margins are ",em:"healthy.",sub:`Bowls keep ${(100-fcp).toFixed(0)}¢ of every dollar${fcpDelta?`, ${fcpDelta<0?"better":"tighter"} than last month`:""} — food cost ${fcp.toFixed(1)}%.${driverPhrase?" "+driverPhrase+".":""}`,color:T.teal};
+
   const actions=[
     {icon:"📷",title:"Scan a new receipt",body:"Snap a supplier invoice and AI auto-extracts line items and updates your cost database.",cta:"Open scanner",fn:()=>setTab("scan"),color:T.blue},
     biggestMover&&biggestMover.ch>10?{icon:"🔺",title:`Renegotiate ${biggestMover.n}`,body:`Up ${biggestMover.ch.toFixed(1)}% since tracking began. Check the market to see if alternate suppliers could save money.`,cta:"Check prices",fn:()=>{setSelIng(biggestMover.n);setTab("menu");},color:T.coral}:null,
@@ -175,7 +218,7 @@ export default function App(){
       const fileBlock=img.isPdf
         ?{type:"document",source:{type:"base64",media_type:"application/pdf",data:img.b64}}
         :{type:"image",source:{type:"base64",media_type:img.mime||"image/jpeg",data:img.b64}};
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:600,messages:[{role:"user",content:[fileBlock,{type:"text",text:'Parse this supplier receipt or invoice for a poke restaurant in Vancouver. Return ONLY JSON no markdown: {"supplier":"name or Unknown","date":"YYYY-MM-DD","items":[{"ingredient":"normalised name","price":0.00,"unit":"lb","quantity":1,"line_total":0.00}]}. price = UNIT price. quantity = units bought. line_total = quantity x unit price as shown on the receipt. Skip taxes and fees. If unreadable: {"error":"Cannot read receipt clearly"}'}]}]})});
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:800,messages:[{role:"user",content:[fileBlock,{type:"text",text:'Parse this supplier receipt or invoice for a poke restaurant in Vancouver. Return ONLY JSON no markdown: {"supplier":"name or Unknown","date":"YYYY-MM-DD","items":[{"ingredient":"normalised name","category":"CATEGORY","price":0.00,"unit":"lb","quantity":1,"line_total":0.00}]}. category = the single best fit from exactly this list: Protein, Base, Vegetables, Fruit, Sauces, Toppings, Packaging, Drinks, Cleaning, Equipment, Other. price = UNIT price. quantity = units bought. line_total = quantity x unit price as shown on the receipt. Skip taxes and fees. If unreadable: {"error":"Cannot read receipt clearly"}'}]}]})});
       const out=await res.json();
       if(!res.ok){
         const apiMsg=out?.error?.message||`API error ${res.status}`;
@@ -199,8 +242,12 @@ export default function App(){
   const okScan=async(r=null)=>{
     const result=r||scanRes;if(!result?.items)return;
     const u=JSON.parse(JSON.stringify(data)),d=result.date||"2026-07-16";
+    // Only food-category lines enter the cost tracker. Non-food lines (packaging, cleaning,
+    // equipment, other) stay in the downloadable parsed receipt but never touch food cost.
+    const foodItems=result.items.filter(it=>isCOGSCat(it.category));
+    const excluded=result.items.length-foodItems.length;
     let saved=0;
-    result.items.forEach(it=>{
+    foodItems.forEach(it=>{
       if(!u.ingredients[it.ingredient])u.ingredients[it.ingredient]=[];
       const dup=u.ingredients[it.ingredient].some(e=>e.date===d&&e.supplier===result.supplier);
       if(!dup){u.ingredients[it.ingredient].push({date:d,price:it.price,unit:it.unit||"unit",supplier:result.supplier||"Unknown"});saved++;}
@@ -209,9 +256,9 @@ export default function App(){
     if(!u.suppliers[result.supplier])u.suppliers[result.supplier]={type:"retail",notes:"Added from receipt scan."};
     setData(u);setInsightsStale(true);setScanRes(null);setImg(null);setModal(null);setTab("dashboard");
     try{
-      await saveReceipt(result,scanLoc);
+      await saveReceipt({...result,items:foodItems},scanLoc);
       await reload();
-      say(`Saved ${saved} item${saved!==1?"s":""} to database`);
+      say(`Saved ${saved} food item${saved!==1?"s":""}${excluded?` · ${excluded} non-food line${excluded!==1?"s":""} kept in the download only`:""}`);
     }catch(e){
       console.error(e);
       say("Saved locally — database sync failed",true);
@@ -259,7 +306,7 @@ export default function App(){
     cogsPct:{overall:fcp.toFixed(1),loc1:latMon&&cRev(latMon,"loc1")?(cCOGS(latMon,"loc1")/cRev(latMon,"loc1")*100).toFixed(1):0,loc2:latMon&&cRev(latMon,"loc2")?(cCOGS(latMon,"loc2")/cRev(latMon,"loc2")*100).toFixed(1):0},
     topMovers:movers.slice(0,5).map(m=>({ingredient:m.n,changePct:m.ch.toFixed(1),price:`$${m.lat.toFixed(2)}/${m.unit}`})),
     menu:Object.entries(data.menu).map(([name])=>({name,sellBlended:blendedPrice(name).toFixed(2),costBlended:bCost(name).toFixed(2),foodCostPct:bFCP(name).toFixed(1)})),
-    sizeMix,
+    sizeMix:derivedMix,
     addOnPricing:ADDONS,
     alerts:activeAlerts.map(([i,t])=>({ingredient:i,threshold:t,current:gL(data.ingredients[i]).toFixed(2)})),
     marketSignals:Object.entries(market).slice(0,20).map(([ing,rows])=>{
@@ -324,29 +371,29 @@ export default function App(){
       {toast&&<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",zIndex:999,background:toast.err?T.coral:T.teal,color:"#fff",padding:"10px 22px",borderRadius:30,fontSize:14,fontWeight:700,boxShadow:"0 4px 24px rgba(0,0,0,0.2)",whiteSpace:"nowrap"}}>{toast.msg}</div>}
 
       {/* header */}
-      <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"6px 14px":"8px 20px",display:"flex",alignItems:"center",minHeight:isMobile?52:64,gap:8,rowGap:6,flexWrap:"wrap",position:"sticky",top:0,zIndex:100}}>
+      <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"6px 10px":"8px 20px",display:"flex",alignItems:"center",minHeight:isMobile?52:64,gap:isMobile?6:8,flexWrap:"nowrap",position:"sticky",top:0,zIndex:100,width:"100%",overflow:"hidden"}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
           <div style={{width:isMobile?38:46,height:isMobile?38:46,borderRadius:"50%",background:"#fff",border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}>
             <img src={WCP_LOGO} alt="WCP" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
           </div>
           {!isMobile&&<div>
             <div style={{fontWeight:800,fontSize:16,color:T.blue,lineHeight:1,letterSpacing:"-0.3px"}}>Westcoast Poké</div>
-            <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:600}}>Cost Intelligence</div>
+            <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:600}}>Food Cost Intelligence</div>
           </div>}
         </div>
-        <div style={{display:"flex",gap:isMobile?4:6,alignItems:"center",flex:1,justifyContent:"center"}}>
+        <div style={{display:"flex",gap:isMobile?4:6,alignItems:"center",flex:1,minWidth:0,justifyContent:"center",overflow:"hidden"}}>
           {[{id:"all",l:isMobile?"All":"All Locations"},{id:"loc1",l:isMobile?"L1":data.locations.loc1},{id:"loc2",l:isMobile?"L2":data.locations.loc2}].map(l=>(
             <button key={l.id} onClick={()=>setLoc(l.id)} style={{background:loc===l.id?T.blue:"transparent",border:`1.5px solid ${loc===l.id?T.blue:T.border}`,color:loc===l.id?"#fff":T.slate,padding:isMobile?"4px 10px":"5px 14px",borderRadius:24,fontSize:isMobile?11:13,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>{l.l}</button>
           ))}
         </div>
-        <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
-          <button onClick={()=>{setTab("insights");if(!loadingInsights)generateInsights();}} title={insightsStale?"New data — refresh AI insights":"Refresh AI insights"} style={{position:"relative",background:"none",border:`1px solid ${T.border}`,borderRadius:"50%",width:isMobile?30:34,height:isMobile?30:34,color:insightsStale?T.blue:T.muted,fontSize:isMobile?14:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,fontWeight:700}}>
-            ↻
+        <div style={{display:"flex",gap:isMobile?4:8,alignItems:"center",flexShrink:0}}>
+          <button onClick={()=>{setTab("insights");if(!loadingInsights)generateInsights();}} title={insightsStale?"New data — refresh AI insights":"Refresh AI insights"} aria-label="Refresh AI insights" style={{position:"relative",background:"none",border:`1px solid ${T.border}`,borderRadius:"50%",width:isMobile?32:34,height:isMobile?32:34,color:insightsStale?T.blue:T.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
+            <HdrIcon id="refresh" size={isMobile?17:18}/>
             {insightsStale&&<span style={{position:"absolute",top:-2,right:-2,width:9,height:9,borderRadius:"50%",background:T.coral,border:`2px solid ${T.card}`}}/>}
           </button>
-          <button onClick={()=>setTab("scan")} style={{background:T.blue,border:"none",borderRadius:20,padding:isMobile?"6px 12px":"7px 16px",color:"#fff",fontSize:isMobile?12:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>📷 {isMobile?"Scan":"Scan receipt"}</button>
-          <button onClick={()=>setDark(v=>!v)} style={{background:"none",border:"none",fontSize:isMobile?18:20,cursor:"pointer",padding:4,lineHeight:1}}>{dark?"☀️":"🌙"}</button>
-          <button onClick={signOut} title={session.user?.email} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.muted,padding:isMobile?"5px 10px":"6px 14px",fontSize:isMobile?11:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Sign out</button>
+          <button onClick={()=>setTab("scan")} aria-label="Scan receipt" style={{background:T.blue,border:"none",borderRadius:20,padding:isMobile?"6px 8px":"7px 16px",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}><HdrIcon id="camera" size={isMobile?18:18}/>{!isMobile&&<span>Scan receipt</span>}</button>
+          <button onClick={()=>setDark(v=>!v)} aria-label={dark?"Switch to light mode":"Switch to dark mode"} title={dark?"Light mode":"Dark mode"} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:"50%",width:isMobile?32:34,height:isMobile?32:34,color:T.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}><HdrIcon id={dark?"sun":"moon"} size={isMobile?17:18}/></button>
+          <button onClick={signOut} title={session.user?.email} aria-label="Sign out" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.muted,padding:isMobile?"5px 8px":"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}><HdrIcon id="signout" size={isMobile?17:18}/>{!isMobile&&<span>Sign out</span>}</button>
         </div>
       </div>
 
@@ -369,10 +416,10 @@ export default function App(){
         </div>
         <div style={{flex:1,minWidth:0}}>
       <div style={{padding:isMobile?"16px":"28px 32px",maxWidth:MAXW,margin:"0 auto"}}>
-        {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,cogs,gp,fcp,revDelta,data,movers,actions,cRev,cCOGS,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice}}/>}
+        {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice}}/>}
         {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedPrice,priceFor,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,doAllChecks,market}}/>}
         {tab==="suppliers"&&<Suppliers {...{T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,reload}}/>}
-        {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,sizeMix,onSaveMix:async(mx)=>{setSizeMix(mx);try{await saveSetting("size_mix",mx);say("Size mix saved");}catch(e){say("Mix save failed",true);}},bFCP,bMargin,months,onSaveSales:async(month,l1,l2,mix)=>{
+        {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,cBowlRev,cOtherRev,bowlUnits,bowlUnitsTotal,sizeAgg,totalBowls,costSz,isBowl,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,bFCP,bMargin,months,say,onSaveSales:async(month,l1,l2,mix)=>{
           const u=JSON.parse(JSON.stringify(data));
           u.sales[month]={loc1:l1,loc2:l2,mix:mix||{}};
           setData(u);
@@ -391,7 +438,7 @@ export default function App(){
 }
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
-function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,cogs,gp,fcp,revDelta,data,movers,actions,cRev,cCOGS,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice}){
+function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice}){
   const h=headline;
   return(
     <div>
@@ -409,18 +456,19 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
 
       <div style={{display:"grid",gridTemplateColumns:isDesktop?"repeat(4,1fr)":"repeat(2,1fr)",gap:isMobile?10:14,marginBottom:isMobile?14:20}}>
         {[
-          {lb:"Revenue",v:fmtK2(rev),sub:latMon,delta:revDelta,col:T.blue,bg:T.blueL},
-          {lb:"Food COGS",v:fmtK2(cogs),sub:`${fcp.toFixed(1)}% of revenue`,col:fcp>30?T.coral:T.amber,bg:fcp>30?T.coralL:T.amberL},
-          {lb:"Gross Profit",v:fmtK2(gp),sub:`${(100-fcp).toFixed(1)}% margin`,col:T.teal,bg:T.tealL},
-          {lb:"Ingredients",v:Object.keys(data.ingredients).length,sub:`${Object.keys(data.suppliers).length} suppliers`,col:T.blue,bg:T.blueL},
+          {lb:"Total Sales",v:fmtK2(rev),sub:latMon||"—",delta:hasData?revDelta:undefined,col:T.blue,bg:T.blueL},
+          {lb:"Bowl Food Cost",v:fmtK2(cogs),sub:`${fcp.toFixed(1)}% of bowl sales`,tag:"excl. add-ons · coming soon",delta:hasData&&fcpDelta?fcpDelta:undefined,deltaInvert:true,col:fcp>30?T.coral:T.amber,bg:fcp>30?T.coralL:T.amberL},
+          {lb:"Bowl Gross Profit",v:fmtK2(gp),sub:`${(100-fcp).toFixed(1)}% margin · ${bowlsSold} bowls`,col:T.teal,bg:T.tealL},
+          {lb:"Other Revenue",v:fmtK2(otherRev),sub:`${rev?((otherRev/rev)*100).toFixed(0):0}% of sales · drinks, add-ons`,col:T.blue,bg:T.blueL},
         ].map((k,i)=>(
           <div key={i} style={{background:k.bg,border:`1px solid ${T.border}`,borderRadius:isMobile?12:16,padding:isMobile?"14px 16px":"18px 22px"}}>
             <div style={{fontSize:10,color:T.inkL,textTransform:"uppercase",letterSpacing:"1px",fontWeight:700,marginBottom:8}}>{k.lb}</div>
             <div style={{fontSize:isMobile?22:30,fontWeight:900,color:k.col,letterSpacing:"-0.5px",lineHeight:1}}>{k.v}</div>
-            <div style={{display:"flex",alignItems:"center",gap:6,marginTop:6}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginTop:6,flexWrap:"wrap"}}>
               <span style={{fontSize:isMobile?11:12,color:T.inkL}}>{k.sub}</span>
-              {k.delta!==undefined&&<span style={{fontSize:11,fontWeight:700,color:k.delta>0?T.teal:T.coral}}>{k.delta>0?"↑":"↓"}{Math.abs(k.delta).toFixed(1)}%</span>}
+              {k.delta!==undefined&&<span style={{fontSize:11,fontWeight:700,color:(k.deltaInvert?k.delta<0:k.delta>0)?T.teal:T.coral}}>{k.delta>0?"↑":"↓"}{Math.abs(k.delta).toFixed(1)}{k.deltaInvert?"pts":"%"}</span>}
             </div>
+            {k.tag&&<div style={{marginTop:6,fontSize:9.5,fontWeight:700,color:T.muted,background:T.card,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",display:"inline-block"}}>{k.tag}</div>}
           </div>
         ))}
       </div>
@@ -432,9 +480,9 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
               <div style={{fontSize:isMobile?15:17,fontWeight:700}}>Location comparison</div>
               <div style={{fontSize:12,color:T.muted}}>{latMon}</div>
             </div>
-            <div style={{fontSize:12,color:T.muted,marginBottom:14}}>Food COGS as share of revenue · target 30%</div>
+            <div style={{fontSize:12,color:T.muted,marginBottom:14}}>Bowl food cost as share of bowl sales · target 30%</div>
             {["loc1","loc2"].map((l,i)=>{
-              const lr=cRev(latMon,l),lc=cCOGS(latMon,l),lp=lr?(lc/lr)*100:0,delta=lp-30;
+              const lr=cRev(latMon,l),lbr=cBowlRev(latMon,l),lc=cCOGS(latMon,l),lp=lbr?(lc/lbr)*100:0,delta=lp-30;
               return(
                 <div key={l} style={{marginBottom:i===0?16:0}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:5}}>
@@ -541,7 +589,12 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
   const [mIng,setMIng]=useState("");const [mPrice,setMPrice]=useState("");const [mUnit,setMUnit]=useState("lb");const [mSup,setMSup]=useState("");const [mDate,setMDate]=useState(new Date().toISOString().slice(0,10));
   const [mSaving,setMSaving]=useState(false);
   const [thrEdit,setThrEdit]=useState("");
-  const [iView,setIView]=useState("list");
+  const formRef=useRef(null);const priceRef=useRef(null);
+  const openAdd=(name)=>{
+    setShowAdd(true);
+    if(name!==undefined)setMIng(name);
+    setTimeout(()=>{formRef.current?.scrollIntoView({behavior:"smooth",block:"start"});priceRef.current?.focus();},60);
+  };
   const inp={background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px",color:T.navy,fontSize:14,fontFamily:"inherit",outline:"none",width:"100%"};
   const submitManual=async()=>{
     if(!mIng.trim()||!mPrice)return;
@@ -575,22 +628,17 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,flexWrap:"wrap",gap:8}}>
         <div style={{fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6,maxWidth:560}}>Your full ingredient catalogue ({CATALOG.length}), with recorded price trends for the {Object.keys(data.ingredients).length} you've tracked so far. Tap a priced one for its history and alerts; tap an unpriced one to add its first price.</div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <div style={{display:"flex",gap:2,background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:2}}>
-            {[["cards","▦"],["list","≡"]].map(([id,ic])=>(
-              <button key={id} onClick={()=>setIView(id)} title={id} style={{background:iView===id?T.blue:"transparent",color:iView===id?"#fff":T.slate,border:"none",borderRadius:14,padding:"5px 12px",fontSize:13,fontWeight:700,cursor:"pointer"}}>{ic}</button>
-            ))}
-          </div>
-          <button onClick={()=>setShowAdd(v=>!v)} style={{background:showAdd?"transparent":T.blue,color:showAdd?T.muted:"#fff",border:showAdd?`1px solid ${T.border}`:"none",padding:"8px 16px",borderRadius:20,fontSize:13,cursor:"pointer",fontWeight:700}}>{showAdd?"Cancel":"+ Add price"}</button>
+          <button onClick={()=>showAdd?setShowAdd(false):openAdd()} style={{background:showAdd?"transparent":T.blue,color:showAdd?T.muted:"#fff",border:showAdd?`1px solid ${T.border}`:"none",padding:"8px 16px",borderRadius:20,fontSize:13,cursor:"pointer",fontWeight:700}}>{showAdd?"Cancel":"+ Add price"}</button>
           <button onClick={doAllChecks} disabled={chkAll} style={{background:T.tealL,border:`1px solid ${T.teal}44`,color:T.teal,padding:"8px 16px",borderRadius:20,fontSize:13,cursor:chkAll?"not-allowed":"pointer",fontWeight:700,opacity:chkAll?0.6:1}}>{chkAll?"🔍 Checking...":`🔍 Check prices · ~$${(0.02*Math.max(1,Object.keys(data.ingredients).length)).toFixed(2)} · 1/day`}</button>
         </div>
       </div>
 
       {showAdd&&(
-        <div style={{...card,marginBottom:14,borderColor:T.blue}}>
+        <div ref={formRef} style={{...card,marginBottom:14,borderColor:T.blue}}>
           <div style={{fontSize:15,fontWeight:700,marginBottom:12}}>Add a price manually</div>
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"2fr 1fr 1fr 2fr 1.4fr auto",gap:8,alignItems:"end"}}>
             <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>INGREDIENT</div><input list="ing-list" value={mIng} onChange={e=>setMIng(e.target.value)} placeholder="e.g. Ahi Tuna" style={inp}/><datalist id="ing-list">{[...new Set([...CATALOG.map(c=>c.name),...Object.keys(data.ingredients)])].sort((a,b)=>a.localeCompare(b)).map(i=><option key={i} value={i}/>)}</datalist></div>
-            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>PRICE $</div><input type="number" inputMode="decimal" value={mPrice} onChange={e=>setMPrice(e.target.value)} placeholder="0.00" style={inp}/></div>
+            <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>PRICE $</div><input ref={priceRef} type="number" inputMode="decimal" value={mPrice} onChange={e=>setMPrice(e.target.value)} placeholder="0.00" style={inp}/></div>
             <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>UNIT</div><select value={mUnit} onChange={e=>setMUnit(e.target.value)} style={inp}>{["lb","kg","each","bottle","case","25kg","10kg","L","bag"].map(u=><option key={u}>{u}</option>)}</select></div>
             <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>SUPPLIER</div><input list="sup-list" value={mSup} onChange={e=>setMSup(e.target.value)} placeholder="e.g. Costco" style={inp}/><datalist id="sup-list">{Object.keys(data.suppliers).map(s=><option key={s} value={s}/>)}</datalist></div>
             <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>DATE</div><input type="date" value={mDate} onChange={e=>setMDate(e.target.value)} style={inp}/></div>
@@ -599,14 +647,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
         </div>
       )}
 
-      {iView==="cards"&&Object.keys(data.ingredients).length===0&&(
-        <div style={{...card,textAlign:"center",padding:"48px 24px",color:T.muted}}>
-          <div style={{fontSize:44,marginBottom:12}}>🥑</div>
-          <div style={{fontSize:16,fontWeight:700,color:T.slate,marginBottom:6}}>No priced ingredients yet</div>
-          <div style={{fontSize:14}}>Switch to the list (≡) to browse the full catalogue, or scan a receipt / add a price to start tracking.</div>
-        </div>
-      )}
-      {iView==="list"&&(()=>{
+      {(()=>{
         const catByName=Object.fromEntries(CATALOG.map(c=>[c.name,c]));
         const names=[...new Set([...CATALOG.map(c=>c.name),...Object.keys(data.ingredients)])];
         const catOf=n=>catByName[n]?.cat||"Other";
@@ -623,18 +664,98 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
                     {rows.map((name,i)=>{
                       const entries=data.ingredients[name],has=entries&&entries.length,meta=catByName[name],last=i===rows.length-1;
                       if(has){
-                        const lat=gL(entries),ch=gPct(entries),thr=data.alerts[name],ov=thr&&lat>thr;
+                        const lat=gL(entries),ch=gPct(entries),thr=data.alerts[name],ov=thr&&lat>thr,isSel=selIng===name,pc=checks[name];
                         return(
-                          <div key={name} onClick={()=>{setSelIng(name);setIView("cards");}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderBottom:last?"none":`1px solid ${T.border}`,cursor:"pointer"}}>
-                            <div style={{flex:1,fontSize:13,fontWeight:600}}>{name}{ov&&<span style={{marginLeft:6,fontSize:11,color:T.coral}}>{"\u26a0"}</span>}</div>
-                            <div style={{fontSize:12,color:T.muted}}>{entries[entries.length-1]?.supplier}</div>
-                            <div style={{fontSize:13,fontWeight:700,width:90,textAlign:"right"}}>${fmt(lat)}<span style={{fontSize:10,color:T.muted,fontWeight:400}}>/{entries[0]?.unit}</span></div>
-                            <div style={{fontSize:12,fontWeight:700,color:ch>0?T.coral:T.teal,width:64,textAlign:"right"}}>{ch>0?"+":""}{ch.toFixed(1)}%</div>
+                          <div key={name} style={{borderBottom:last&&!isSel?"none":`1px solid ${T.border}`}}>
+                            <div onClick={()=>setSelIng(isSel?null:name)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",cursor:"pointer",background:isSel?T.blueL:"transparent"}}>
+                              <div style={{flex:1,fontSize:13,fontWeight:600}}>{name}{ov&&<span style={{marginLeft:6,fontSize:11,color:T.coral}}>{"\u26a0"}</span>}</div>
+                              <div style={{fontSize:12,color:T.muted}}>{entries[entries.length-1]?.supplier}</div>
+                              <div style={{fontSize:13,fontWeight:700,width:88,textAlign:"right"}}>${fmt(lat)}<span style={{fontSize:10,color:T.muted,fontWeight:400}}>/{entries[0]?.unit}</span></div>
+                              <div style={{fontSize:12,fontWeight:700,color:ch>0?T.coral:T.teal,width:52,textAlign:"right"}}>{ch>0?"+":""}{ch.toFixed(1)}%</div>
+                              <span style={{color:T.muted,fontSize:11,width:12,textAlign:"center"}}>{isSel?"\u25be":"\u25b8"}</span>
+                            </div>
+                            {isSel&&(
+                              <div onClick={e=>e.stopPropagation()} style={{padding:"6px 16px 18px"}}>
+                                <PriceChart data={entries} T={T}/>
+                                <div style={{marginTop:12}}>
+                                  {entries.map((e,i)=>(
+                                    <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,fontSize:13,color:T.muted,padding:"5px 0",borderBottom:`1px solid ${T.border}`}}>
+                                      <span>{e.date}</span><span>{e.supplier}</span>
+                                      <span style={{color:T.navy,fontWeight:600,marginLeft:"auto"}}>${fmt(e.price)}/{e.unit}</span>
+                                      <button onClick={()=>delEntry(e.id,name)} title="Delete entry" style={{background:"none",border:"none",color:T.coral,fontSize:15,cursor:"pointer",padding:"2px 6px",lineHeight:1}}>×</button>
+                                    </div>
+                                  ))}
+                                </div>
+                                {entries.length>=4&&(()=>{
+                                  const last3=entries.slice(-3).map(e=>e.price);
+                                  const slope=(last3[2]-last3[0])/2;
+                                  const projected=Math.max(0,last3[2]+slope*3);
+                                  if(Math.abs(slope)<0.01)return null;
+                                  return <div style={{marginTop:12,fontSize:12,color:T.slate}}>Trending toward ~<strong>${fmt(projected)}/{entries[0]?.unit}</strong> in 3 months <Tag c={T.slate} bg={T.bg} sm>FORECAST</Tag></div>;
+                                })()}
+                                {(market[name]||[]).length>=3&&(()=>{
+                                  const mk=market[name];
+                                  const first=mk[0].price,latest=mk[mk.length-1].price;
+                                  const chg=first?((latest-first)/first)*100:0;
+                                  return(
+                                    <div style={{marginTop:10,background:T.amberL,border:`1px solid ${T.amber}33`,borderRadius:10,padding:"10px 14px"}}>
+                                      <div style={{fontSize:12,fontWeight:700,color:T.slate,marginBottom:2}}>Market outlook <Tag c={T.amber} bg={T.amberL} sm>ADVISORY</Tag></div>
+                                      <div style={{fontSize:12,color:T.slate}}>Market {chg>1?`rising ${chg.toFixed(0)}%`:chg<-1?`falling ${Math.abs(chg).toFixed(0)}%`:"flat"} across your last {mk.length} checks · latest ${fmt(latest)} vs you paying ${fmt(gL(entries))}</div>
+                                    </div>
+                                  );
+                                })()}
+                                <div style={{display:"flex",gap:8,alignItems:"center",marginTop:14,flexWrap:"wrap"}}>
+                                  <span style={{fontSize:12,color:T.muted,fontWeight:700}}>Price alert above $</span>
+                                  <input type="number" inputMode="decimal" defaultValue={thr||""} onChange={e=>setThrEdit(e.target.value)} placeholder="none" style={{width:90,background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"7px 10px",color:T.navy,fontSize:13,outline:"none"}}/>
+                                  <button onClick={()=>saveThr(name)} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Set alert</button>
+                                  <button onClick={()=>delIng(name)} style={{marginLeft:"auto",background:"none",border:`1px solid ${T.coral}55`,borderRadius:16,color:T.coral,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Delete ingredient</button>
+                                </div>
+                                <div style={{marginTop:16}}>
+                                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                                    <div style={{fontSize:14,fontWeight:700}}>Vancouver Market Price Check</div>
+                                    <span style={{fontSize:11,color:T.muted}}>{chkIng===name?"Searching...":pc?"":"Runs with the daily price check"}</span>
+                                  </div>
+                                  {pc?.status==="loading"&&<div style={{background:T.blueL,borderRadius:10,padding:14,fontSize:14,color:T.blue}}>Searching Vancouver retailers...</div>}
+                                  {pc?.status==="err"&&<div style={{background:T.coralL,borderRadius:10,padding:14,fontSize:14,color:T.coral}}>{pc.msg}</div>}
+                                  {pc?.status==="ok"&&(()=>{
+                                    const r=pc.data;
+                                    const vc=r.verdict==="good"?T.teal:r.verdict==="high"?T.amber:T.coral;
+                                    const vbg=r.verdict==="good"?T.tealL:r.verdict==="high"?T.amberL:T.coralL;
+                                    return(
+                                      <div style={{background:vbg,borderRadius:12,padding:16,border:`1px solid ${vc}33`}}>
+                                        <div style={{fontSize:15,fontWeight:700,color:vc,marginBottom:4}}>{r.verdict==="good"?"✓ You're getting a good price":r.verdict==="high"?"↑ Paying above market":"⚠ Significantly above market"}</div>
+                                        <div style={{fontSize:12,color:T.muted,marginBottom:12}}>Market range: ${r.marketRange?.low?.toFixed(2)} – ${r.marketRange?.high?.toFixed(2)}/{entries[0]?.unit}</div>
+                                        <div style={{background:T.card,borderRadius:10,marginBottom:12,overflow:"hidden"}}>
+                                          {r.sources?.sort((a,b)=>a.price-b.price).map((src,si)=>{
+                                            const sav=(pc.paying||lat)-src.price,cheap=sav>0;
+                                            return(
+                                              <div key={si} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderBottom:si<r.sources.length-1?`1px solid ${T.border}`:"none"}}>
+                                                <div style={{width:6,height:6,borderRadius:"50%",background:cheap?T.teal:T.border,flexShrink:0}}/>
+                                                <div style={{flex:1}}>
+                                                  <div style={{fontSize:14,fontWeight:600}}>{src.url&&/^https?:\/\//.test(src.url)?<a href={src.url} target="_blank" rel="noopener noreferrer" style={{color:T.blue,textDecoration:"none"}}>{src.store} ↗</a>:<span>{src.store} <span style={{fontSize:10,color:T.amber,fontWeight:700}}>UNVERIFIED</span></span>}</div>
+                                                  {src.notes&&<div style={{fontSize:11,color:T.muted}}>{src.notes}</div>}
+                                                </div>
+                                                <div style={{textAlign:"right"}}>
+                                                  <div style={{fontSize:14,fontWeight:700,color:cheap?T.teal:T.slate}}>${fmt(src.price)}</div>
+                                                  {cheap&&<div style={{fontSize:11,color:T.teal,fontWeight:600}}>Save ${fmt(sav)}</div>}
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                        <div style={{fontSize:13,color:vc,fontWeight:600,marginBottom:6}}>💡 {r.recommendation}</div>
+                                        <div style={{fontSize:11,color:T.muted}}>Checked {pc.at} · {pc.scope==="preferred"?"Preferred suppliers":"Market-wide"} · indicative only</div>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       }
                       return(
-                        <div key={name} onClick={()=>{setMIng(name);setShowAdd(true);}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderBottom:last?"none":`1px solid ${T.border}`,cursor:"pointer"}}>
+                        <div key={name} onClick={()=>openAdd(name)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderBottom:last?"none":`1px solid ${T.border}`,cursor:"pointer"}}>
                           <div style={{flex:1,fontSize:13,fontWeight:600,color:T.slate}}>{name}{meta&&meta.addon&&meta.addonPrice>0?<span style={{marginLeft:8,fontSize:10,color:T.muted}}>add-on ${fmt(meta.addonPrice)}</span>:null}</div>
                           <div style={{fontSize:11,color:T.muted,fontStyle:"italic"}}>{meta&&meta.usedIn?`in ${meta.usedIn.split(", ").filter(Boolean).length} item(s)`:"add-on / BYO"}</div>
                           <div style={{fontSize:12,fontWeight:700,color:T.blue,width:100,textAlign:"right"}}>+ add price</div>
@@ -648,113 +769,6 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
           </div>
         );
       })()}
-      {iView==="cards"&&(
-      <div style={{display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",gap:10}}>
-        {Object.entries(data.ingredients).map(([name,entries])=>{
-          const lat=gL(entries),ch=gPct(entries),isSel=selIng===name,thr=data.alerts[name],ov=thr&&lat>thr,pc=checks[name];
-          return(
-            <div key={name} onClick={()=>setSelIng(isSel?null:name)} style={{...card,borderColor:ov?T.coral:isSel?T.blue:T.border,cursor:"pointer",gridColumn:isSel&&isDesktop?"1 / -1":"auto"}}>
-              <div style={{display:"flex",alignItems:"center",gap:12}}>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:isMobile?14:16,fontWeight:700,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:3}}>
-                    {name}
-                    {ov&&<Tag c={T.coral} bg={T.coralL} sm>🔺 Alert</Tag>}
-                    {pc?.status==="ok"&&<Tag c={pc.data?.verdict==="good"?T.teal:pc.data?.verdict==="high"?T.amber:T.coral} bg={pc.data?.verdict==="good"?T.tealL:pc.data?.verdict==="high"?T.amberL:T.coralL} sm>{pc.data?.verdict==="good"?"✓ Good":pc.data?.verdict==="high"?"↑ High":"⚠ Very high"}</Tag>}
-                  </div>
-                  <div style={{fontSize:12,color:T.muted}}>{entries[entries.length-1]?.supplier} · {entries[entries.length-1]?.date}</div>
-                </div>
-                <div style={{textAlign:"right",marginRight:8}}>
-                  <div style={{fontSize:isMobile?18:22,fontWeight:800,letterSpacing:"-0.5px"}}>${fmt(lat)}<span style={{fontSize:11,color:T.muted,fontWeight:400}}>/{entries[0]?.unit}</span></div>
-                  <div style={{fontSize:13,fontWeight:700,color:ch>0?T.coral:T.teal}}>{ch>0?"▲":"▼"} {Math.abs(ch).toFixed(1)}%<span style={{fontSize:10,color:T.muted,fontWeight:400}}> · {(()=>{const ms=(new Date(entries[entries.length-1].date)-new Date(entries[0].date))/2592000000;return ms<1?"<1 mo":`${Math.round(ms)} mo`;})()}</span></div>
-                </div>
-                <Spark data={entries} up={ch>0} T={T} W={isDesktop?90:70} H={32}/>
-              </div>
-
-              {isSel&&(
-                <div style={{marginTop:16,paddingTop:16,borderTop:`1px solid ${T.border}`}} onClick={e=>e.stopPropagation()}>
-                  <PriceChart data={entries} T={T}/>
-                  <div style={{marginTop:12}}>
-                    {entries.map((e,i)=>(
-                      <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,fontSize:13,color:T.muted,padding:"5px 0",borderBottom:`1px solid ${T.border}`}}>
-                        <span>{e.date}</span><span>{e.supplier}</span>
-                        <span style={{color:T.navy,fontWeight:600,marginLeft:"auto"}}>${fmt(e.price)}/{e.unit}</span>
-                        <button onClick={()=>delEntry(e.id,name)} title="Delete entry" style={{background:"none",border:"none",color:T.coral,fontSize:15,cursor:"pointer",padding:"2px 6px",lineHeight:1}}>×</button>
-                      </div>
-                    ))}
-                  </div>
-                  {entries.length>=4&&(()=>{
-                    const last3=entries.slice(-3).map(e=>e.price);
-                    const slope=(last3[2]-last3[0])/2;
-                    const projected=Math.max(0,last3[2]+slope*3);
-                    if(Math.abs(slope)<0.01)return null;
-                    return <div style={{marginTop:12,fontSize:12,color:T.slate}}>Trending toward ~<strong>${fmt(projected)}/{entries[0]?.unit}</strong> in 3 months <Tag c={T.slate} bg={T.bg} sm>FORECAST</Tag></div>;
-                  })()}
-                  {(market[name]||[]).length>=3&&(()=>{
-                    const mk=market[name];
-                    const first=mk[0].price,latest=mk[mk.length-1].price;
-                    const chg=first?((latest-first)/first)*100:0;
-                    return(
-                      <div style={{marginTop:10,background:T.amberL,border:`1px solid ${T.amber}33`,borderRadius:10,padding:"10px 14px"}}>
-                        <div style={{fontSize:12,fontWeight:700,color:T.slate,marginBottom:2}}>Market outlook <Tag c={T.amber} bg={T.amberL} sm>ADVISORY</Tag></div>
-                        <div style={{fontSize:12,color:T.slate}}>Market {chg>1?`rising ${chg.toFixed(0)}%`:chg<-1?`falling ${Math.abs(chg).toFixed(0)}%`:"flat"} across your last {mk.length} checks · latest ${fmt(latest)} vs you paying ${fmt(gL(entries))}</div>
-                      </div>
-                    );
-                  })()}
-                  <div style={{display:"flex",gap:8,alignItems:"center",marginTop:14,flexWrap:"wrap"}}>
-                    <span style={{fontSize:12,color:T.muted,fontWeight:700}}>Price alert above $</span>
-                    <input type="number" inputMode="decimal" defaultValue={thr||""} onChange={e=>setThrEdit(e.target.value)} placeholder="none" style={{width:90,background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"7px 10px",color:T.navy,fontSize:13,outline:"none"}}/>
-                    <button onClick={()=>saveThr(name)} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Set alert</button>
-                    <button onClick={()=>delIng(name)} style={{marginLeft:"auto",background:"none",border:`1px solid ${T.coral}55`,borderRadius:16,color:T.coral,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Delete ingredient</button>
-                  </div>
-                  <div style={{marginTop:16}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                      <div style={{fontSize:14,fontWeight:700}}>Vancouver Market Price Check</div>
-                      <span style={{fontSize:11,color:T.muted}}>{chkIng===name?"Searching...":pc?"":"Runs with the daily price check"}</span>
-                    </div>
-                    {pc?.status==="loading"&&<div style={{background:T.blueL,borderRadius:10,padding:14,fontSize:14,color:T.blue}}>Searching Vancouver retailers...</div>}
-                    {pc?.status==="err"&&<div style={{background:T.coralL,borderRadius:10,padding:14,fontSize:14,color:T.coral}}>{pc.msg}</div>}
-                    {pc?.status==="ok"&&(()=>{
-                      const r=pc.data;
-                      const vc=r.verdict==="good"?T.teal:r.verdict==="high"?T.amber:T.coral;
-                      const vbg=r.verdict==="good"?T.tealL:r.verdict==="high"?T.amberL:T.coralL;
-                      return(
-                        <div style={{background:vbg,borderRadius:12,padding:16,border:`1px solid ${vc}33`}}>
-                          <div style={{fontSize:15,fontWeight:700,color:vc,marginBottom:4}}>{r.verdict==="good"?"✓ You're getting a good price":r.verdict==="high"?"↑ Paying above market":"⚠ Significantly above market"}</div>
-                          <div style={{fontSize:12,color:T.muted,marginBottom:12}}>Market range: ${r.marketRange?.low?.toFixed(2)} – ${r.marketRange?.high?.toFixed(2)}/{entries[0]?.unit}</div>
-                          <div style={{background:T.card,borderRadius:10,marginBottom:12,overflow:"hidden"}}>
-                            {r.sources?.sort((a,b)=>a.price-b.price).map((src,si)=>{
-                              const sav=(pc.paying||lat)-src.price,cheap=sav>0;
-                              return(
-                                <div key={si} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderBottom:si<r.sources.length-1?`1px solid ${T.border}`:"none"}}>
-                                  <div style={{width:6,height:6,borderRadius:"50%",background:cheap?T.teal:T.border,flexShrink:0}}/>
-                                  <div style={{flex:1}}>
-                                    <div style={{fontSize:14,fontWeight:600}}>{src.url&&/^https?:\/\//.test(src.url)?<a href={src.url} target="_blank" rel="noopener noreferrer" style={{color:T.blue,textDecoration:"none"}}>{src.store} ↗</a>:<span>{src.store} <span style={{fontSize:10,color:T.amber,fontWeight:700}}>UNVERIFIED</span></span>}</div>
-                                    {src.notes&&<div style={{fontSize:11,color:T.muted}}>{src.notes}</div>}
-                                  </div>
-                                  <div style={{textAlign:"right"}}>
-                                    <div style={{fontSize:14,fontWeight:700,color:cheap?T.teal:T.slate}}>${fmt(src.price)}</div>
-                                    {cheap&&<div style={{fontSize:11,color:T.teal,fontWeight:600}}>Save ${fmt(sav)}</div>}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                          <div style={{fontSize:13,color:vc,fontWeight:600,marginBottom:6}}>💡 {r.recommendation}</div>
-                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                            <div style={{fontSize:11,color:T.muted}}>Checked {pc.at} · {pc.scope==="preferred"?"Preferred suppliers":"Market-wide"} · indicative only</div>
-                            
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      )}
     </div>
   );
 }
@@ -1078,42 +1092,149 @@ function MultiLine({series,T,money=true}){
 }
 
 // ─── SALES & P&L ─────────────────────────────────────────────────────────────
-function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,sizeMix,onSaveMix,bFCP,bMargin,months,onSaveSales}){
+function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,cBowlRev,cOtherRev,bowlUnits,bowlUnitsTotal,sizeAgg,totalBowls,costSz,isBowl,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,bFCP,bMargin,months,say,onSaveSales}){
+  const SZ=["small","medium","large"];
   const [showForm,setShowForm]=useState(false);
   const [fMonth,setFMonth]=useState("");
   const [fL1,setFL1]=useState("");
   const [fL2,setFL2]=useState("");
-  const [fMix,setFMix]=useState({});
+  const [parsedMix,setParsedMix]=useState(null);
+  const [parseMsg,setParseMsg]=useState(null);
   const [saving,setSaving]=useState(false);
   const [period,setPeriod]=useState("month");
   const [off,setOff]=useState(0);
   const [mcaSz,setMcaSz]=useState("agg");
-  const [mixDraft,setMixDraft]=useState(null);
+  const upRef=useRef(null);
+  const MNc=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const monthOptions=(()=>{
     const opts=[];const now=new Date(2026,6);
-    for(let i=0;i<12;i++){const d=new Date(now.getFullYear(),now.getMonth()-i);opts.push(`${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()]} ${d.getFullYear()}`);}
+    for(let i=0;i<12;i++){const d=new Date(now.getFullYear(),now.getMonth()-i);opts.push(`${MNc[d.getMonth()]} ${d.getFullYear()}`);}
     return opts;
   })();
-  const bowls=Object.entries(data.menu).filter(([,m])=>!m.category||m.category==="classic"||m.category==="byo").map(([n])=>n);
-  const mixComplete=bowls.every(b=>fMix[b]?.l1!==undefined&&fMix[b]?.l1!==""&&fMix[b]?.l2!==undefined&&fMix[b]?.l2!=="");
+  const catLabel=m=>isBowl(m)?"Bowl":m.category==="side"?"Side":m.category==="drink"?"Drink":"Item";
+  const orderedMenu=Object.entries(data.menu).sort((a,b)=>{
+    const rank=m=>isBowl(m[1])?0:m[1].category==="side"?1:m[1].category==="drink"?2:3;
+    return rank(a)-rank(b)||a[0].localeCompare(b[0]);
+  });
+
+  // ── Build the fixed Excel template in-browser (same structure the parser expects) ──
+  const downloadTemplate=()=>{
+    const wb=XLSX.utils.book_new();
+    const readme=[
+      ["Westcoast Poké — Monthly Product Mix template"],
+      [],
+      ["How to use"],
+      ["1. One file covers ONE month, both locations (one tab per location)."],
+      ["2. On each location tab, fill the yellow count cells from your POS monthly product report."],
+      ["3. Bowls use the S / M / L columns. Everything else (sides, drinks) uses the One-size column."],
+      ["4. Enter 0 where nothing sold. Leave the Category / Sub-category columns as they are."],
+      ["5. Set the Month cell on each tab to the month you're reporting."],
+      ["6. Save, then use ‘Upload counts’ in the app — total sales $ is still typed in by hand."],
+      [],
+      ["Do not rename the Category header row or the Location / Month rows — the importer looks for them."],
+    ];
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(readme),"Read me");
+    [data.locations.loc1,data.locations.loc2].forEach(locName=>{
+      const rows=[
+        ["Westcoast Poké — Monthly Product Mix"],
+        ["Location:",locName],
+        ["Month:",""],
+        [],
+        ["Category","Sub-category","One-size","S","M","L"],
+      ];
+      orderedMenu.forEach(([name,m])=>{
+        if(isBowl(m))rows.push(["Bowl",name,"","","",""]);
+        else rows.push([catLabel(m),name,"","",""," "]);
+      });
+      const ws=XLSX.utils.aoa_to_sheet(rows);
+      ws["!cols"]=[{wch:12},{wch:26},{wch:10},{wch:8},{wch:8},{wch:8}];
+      XLSX.utils.book_append_sheet(wb,ws,locName.slice(0,31));
+    });
+    XLSX.writeFile(wb,`westcoast-poke-product-mix-${(fMonth||"template").replace(/\s+/g,"-")}.xlsx`);
+  };
+
+  // ── Parse an uploaded template into the mix shape (per parser contract) ──
+  const num=v=>{const n=parseFloat(v);return isNaN(n)||n<0?0:Math.round(n);};
+  const onUpload=async(e)=>{
+    const file=e.target.files?.[0];if(!file)return;
+    if(!fMonth){setParseMsg({err:true,text:"Pick the month first, then upload — counts attach to that month."});e.target.value="";return;}
+    try{
+      const buf=await file.arrayBuffer();
+      const wb=XLSX.read(buf,{type:"array"});
+      const mix={bowls:{},other:{}};
+      const warnings=[];let boundTabs=0;
+      wb.SheetNames.filter(n=>n.trim().toLowerCase()!=="read me").forEach(sn=>{
+        const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,blankrows:false,defval:""});
+        // Find a labelled value ("Location"/"Month") anywhere in the header rows; value = next cell to the right
+        const labelVal=(label)=>{for(const row of aoa.slice(0,8)){for(let c=0;c<row.length;c++){if(String(row[c]||"").trim().toLowerCase().replace(/:$/,"")===label)return String(row[c+1]||"").trim();}}return "";};
+        const locName=labelVal("location");
+        const monCell=labelVal("month");
+        let lk=null;
+        if(locName&&locName.toLowerCase()===String(data.locations.loc1).toLowerCase())lk="loc1";
+        else if(locName&&locName.toLowerCase()===String(data.locations.loc2).toLowerCase())lk="loc2";
+        if(!lk){warnings.push(`Tab “${sn}”: Location cell “${locName||"blank"}” didn’t match either location — skipped.`);return;}
+        if(monCell&&monCell.toLowerCase()!==fMonth.toLowerCase())warnings.push(`Tab “${sn}”: Month cell says “${monCell}”, importing into ${fMonth}.`);
+        const hIdx=aoa.findIndex(r=>String(r[0]||"").trim().toLowerCase()==="category");
+        if(hIdx<0){warnings.push(`Tab “${sn}”: no “Category” header row found — skipped.`);return;}
+        for(let i=hIdx+1;i<aoa.length;i++){
+          const r=aoa[i];const cat=String(r[0]||"").trim();const name=String(r[1]||"").trim();
+          if(!name)continue;
+          const mi=data.menu[name];
+          const bowl=mi?isBowl(mi):cat.toLowerCase().includes("bowl");
+          if(bowl){
+            const s=num(r[3]),m=num(r[4]),l=num(r[5]);
+            mix.bowls[name]=mix.bowls[name]||{small:{loc1:0,loc2:0},medium:{loc1:0,loc2:0},large:{loc1:0,loc2:0}};
+            mix.bowls[name].small[lk]=s;mix.bowls[name].medium[lk]=m;mix.bowls[name].large[lk]=l;
+          }else{
+            const one=num(r[2]);
+            mix.other[name]=mix.other[name]||{loc1:0,loc2:0};
+            mix.other[name][lk]=one;
+          }
+        }
+        boundTabs++;
+      });
+      if(!boundTabs){setParseMsg({err:true,text:"Couldn’t read either location tab. Use the template from the button above."});e.target.value="";return;}
+      const tot=Object.keys(mix.bowls).reduce((s,bw)=>s+SZ.reduce((t,sz)=>t+(mix.bowls[bw][sz].loc1||0)+(mix.bowls[bw][sz].loc2||0),0),0);
+      setParsedMix(mix);
+      setParseMsg({err:false,text:`Imported ${tot} bowls across ${boundTabs} location tab${boundTabs>1?"s":""}.`,warnings});
+    }catch(err){console.error(err);setParseMsg({err:true,text:"That file couldn’t be read as an .xlsx template."});}
+    e.target.value="";
+  };
+
+  const pickMonth=(m)=>{setFMonth(m);setParsedMix(null);setParseMsg(null);const ex=data.sales[m];if(ex){setFL1(ex.loc1?String(ex.loc1):"");setFL2(ex.loc2?String(ex.loc2):"");}else{setFL1("");setFL2("");}};
+
   const submit=async()=>{
-    if(!fMonth||(!fL1&&!fL2)||!mixComplete)return;
+    if(!fMonth)return;
     setSaving(true);
     const existing=data.sales[fMonth]||{};
     const l1=fL1!==""?(parseFloat(fL1)||0):(existing.loc1||0);
     const l2=fL2!==""?(parseFloat(fL2)||0):(existing.loc2||0);
-    const mix={};
-    bowls.forEach(b=>{mix[b]={loc1:parseInt(fMix[b]?.l1)||0,loc2:parseInt(fMix[b]?.l2)||0};});
+    const mix=parsedMix||existing.mix||{bowls:{},other:{}};
     await onSaveSales(fMonth,l1,l2,mix);
-    setSaving(false);setShowForm(false);setFMonth("");setFL1("");setFL2("");setFMix({});
+    setSaving(false);setShowForm(false);setFMonth("");setFL1("");setFL2("");setParsedMix(null);setParseMsg(null);
   };
-  const pickMonth=(m)=>{
-    setFMonth(m);
-    const ex=data.sales[m];
-    if(ex?.mix){const pre={};Object.entries(ex.mix).forEach(([b,v])=>{pre[b]={l1:String(v.loc1||0),l2:String(v.loc2||0)};});setFMix(pre);}
-    else setFMix({});
-  };
-  const inp={width:"100%",background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"11px 14px",color:T.navy,fontSize:15,fontFamily:"inherit",outline:"none"};
+
+  // ── Derived read-outs for the form (from parsed upload, or already-saved month) ──
+  const previewMix=parsedMix||(fMonth?data.sales[fMonth]?.mix:null);
+  const pvUnits=(bw,sz,l)=>{const v=previewMix?.bowls?.[bw]?.[sz];if(!v)return 0;return l==="loc1"?(v.loc1||0):l==="loc2"?(v.loc2||0):((v.loc1||0)+(v.loc2||0));};
+  const pvAgg=(l)=>{const b=previewMix?.bowls||{};const o={small:0,medium:0,large:0};Object.keys(b).forEach(bw=>SZ.forEach(sz=>{o[sz]+=pvUnits(bw,sz,l);}));return o;};
+  const pvBowlRev=(l)=>Object.keys(previewMix?.bowls||{}).reduce((t,bw)=>t+SZ.reduce((s,sz)=>s+pvUnits(bw,sz,l)*priceFor(data.menu[bw]||{},sz),0),0);
+  const pvCOGS=(l)=>Object.keys(previewMix?.bowls||{}).reduce((t,bw)=>t+SZ.reduce((s,sz)=>s+pvUnits(bw,sz,l)*costSz(bw,sz),0),0);
+  const agg=pvAgg("all");const pvBowls=agg.small+agg.medium+agg.large;
+  const salesTotal=(fL1!==""?(parseFloat(fL1)||0):(data.sales[fMonth]?.loc1||0))+(fL2!==""?(parseFloat(fL2)||0):(data.sales[fMonth]?.loc2||0));
+  const pvRev=pvBowlRev("all");const pvC=pvCOGS("all");
+  const pvFcp=pvRev?(pvC/pvRev)*100:0;const pvAvg=pvBowls?pvRev/pvBowls:0;const pvOther=Math.max(0,salesTotal-pvRev);
+
+  const inp={width:"100%",background:"#fff",border:`1px solid ${T.border}`,borderRadius:10,padding:"11px 14px",color:"#111827",fontSize:15,fontFamily:"inherit",outline:"none"};
+  const readout=(lb,v,sub,tag)=>(
+    <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px"}}>
+      <div style={{fontSize:9.5,color:T.inkL,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:4}}>{lb}</div>
+      <div style={{fontSize:isMobile?16:19,fontWeight:900,color:T.navy,letterSpacing:"-0.5px"}}>{v}</div>
+      {sub&&<div style={{fontSize:10.5,color:T.muted,marginTop:2}}>{sub}</div>}
+      {tag&&<div style={{marginTop:5,fontSize:9,fontWeight:700,color:T.muted,background:T.card,border:`1px solid ${T.border}`,borderRadius:20,padding:"1px 7px",display:"inline-block"}}>{tag}</div>}
+    </div>
+  );
+
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
@@ -1122,50 +1243,72 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
       </div>
 
       {showForm&&(
-        <div style={{...card,marginBottom:16,borderColor:T.blue}}>
-          <div style={{fontSize:isMobile?15:17,fontWeight:700,marginBottom:14}}>Enter monthly revenue</div>
-          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr auto",gap:10,alignItems:"end"}}>
-            <div>
-              <div style={{fontSize:11,color:T.muted,fontWeight:700,marginBottom:5}}>MONTH</div>
-              <select value={fMonth} onChange={e=>pickMonth(e.target.value)} style={inp}>
-                <option value="">Select month...</option>
-                {monthOptions.map(m=><option key={m} value={m}>{m}{data.sales[m]?" (update)":""}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:T.muted,fontWeight:700,marginBottom:5}}>{data.locations.loc1.toUpperCase()} $</div>
-              <input type="number" inputMode="decimal" placeholder="0.00" value={fL1} onChange={e=>setFL1(e.target.value)} style={inp}/>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:T.muted,fontWeight:700,marginBottom:5}}>{data.locations.loc2.toUpperCase()} $</div>
-              <input type="number" inputMode="decimal" placeholder="0.00" value={fL2} onChange={e=>setFL2(e.target.value)} style={inp}/>
-            </div>
-            <button onClick={submit} disabled={saving||!fMonth||(!fL1&&!fL2)||!mixComplete} style={{background:T.teal,color:"#fff",border:"none",borderRadius:10,padding:"12px 22px",fontSize:14,fontWeight:800,cursor:saving?"not-allowed":"pointer",opacity:saving||!fMonth||(!fL1&&!fL2)||!mixComplete?0.6:1,whiteSpace:"nowrap"}}>{saving?"Saving...":"Save"}</button>
-          </div>
-          {fMonth&&(
-            <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
-              <div style={{fontSize:12,fontWeight:800,color:T.navy,marginBottom:4}}>Bowls sold · required</div>
-              <div style={{fontSize:11,color:T.muted,marginBottom:10}}>From your POS monthly product report · enter 0 if none sold. Revenue and bowl counts are independent (drinks and extras mean they will not reconcile exactly).</div>
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:"6px 24px"}}>
-                {bowls.map(b=>(
-                  <div key={b} style={{display:"flex",alignItems:"center",gap:8}}>
-                    <div style={{flex:1,fontSize:13,fontWeight:600}}>{b}</div>
-                    <input type="number" inputMode="numeric" min="0" placeholder="L1" value={fMix[b]?.l1??""} onChange={e=>setFMix(p=>({...p,[b]:{...p[b],l1:e.target.value}}))} style={{...inp,width:70,textAlign:"right"}}/>
-                    <input type="number" inputMode="numeric" min="0" placeholder="L2" value={fMix[b]?.l2??""} onChange={e=>setFMix(p=>({...p,[b]:{...p[b],l2:e.target.value}}))} style={{...inp,width:70,textAlign:"right"}}/>
-                  </div>
-                ))}
+        <div style={{...card,marginBottom:16,borderColor:T.blue,padding:0,overflow:"hidden"}}>
+          <div style={{background:T.blueL,padding:isMobile?"14px 16px":"16px 20px",borderBottom:`1px solid ${T.border}`}}>
+            <div style={{fontSize:isMobile?15:17,fontWeight:800,color:T.blueDark,marginBottom:4}}>Enter monthly sales</div>
+            <div style={{fontSize:12.5,color:T.slate,lineHeight:1.6}}>Type each location’s <strong>total sales $</strong> for the month by hand. Then download the Excel template, fill in your bowl counts from the POS product report, and upload it — the counts do the rest. Other revenue (drinks, add-ons, extras) is worked out for you as total sales minus bowl revenue.</div>
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1.2fr 1fr 1fr",gap:10,marginTop:14}}>
+              <div>
+                <div style={{fontSize:11,color:T.slate,fontWeight:700,marginBottom:5}}>MONTH</div>
+                <select value={fMonth} onChange={e=>pickMonth(e.target.value)} style={inp}>
+                  <option value="">Select month…</option>
+                  {monthOptions.map(m=><option key={m} value={m}>{m}{data.sales[m]?" (update)":""}</option>)}
+                </select>
               </div>
-              {!mixComplete&&<div style={{marginTop:8,fontSize:11,color:T.amber,fontWeight:600}}>Fill every bowl count (use 0) to enable Save</div>}
+              <div>
+                <div style={{fontSize:11,color:T.slate,fontWeight:700,marginBottom:5}}>{data.locations.loc1.toUpperCase()} · TOTAL $</div>
+                <input type="number" inputMode="decimal" placeholder="0.00" value={fL1} onChange={e=>setFL1(e.target.value)} style={inp}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:T.slate,fontWeight:700,marginBottom:5}}>{data.locations.loc2.toUpperCase()} · TOTAL $</div>
+                <input type="number" inputMode="decimal" placeholder="0.00" value={fL2} onChange={e=>setFL2(e.target.value)} style={inp}/>
+              </div>
             </div>
-          )}
-          {fMonth&&data.sales[fMonth]&&<div style={{marginTop:10,fontSize:12,color:T.amber,fontWeight:600}}>⚠ {fMonth} already has figures (${(data.sales[fMonth].loc1||0).toLocaleString()} / ${(data.sales[fMonth].loc2||0).toLocaleString()}) — saving will overwrite them.</div>}
+            <div style={{display:"flex",gap:10,marginTop:12,flexWrap:"wrap"}}>
+              <button onClick={downloadTemplate} style={{background:"#fff",border:`1px solid ${T.blue}`,color:T.blue,borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>⬇ Download Excel template</button>
+              <button onClick={()=>fMonth?upRef.current?.click():setParseMsg({err:true,text:"Pick the month first."})} style={{background:T.blue,border:"none",color:"#fff",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>⬆ Upload counts (.xlsx)</button>
+              <input ref={upRef} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={onUpload} style={{display:"none"}}/>
+            </div>
+            {parseMsg&&(
+              <div style={{marginTop:10,fontSize:12,fontWeight:600,color:parseMsg.err?T.coral:T.teal,background:parseMsg.err?T.coralL:T.tealL,border:`1px solid ${(parseMsg.err?T.coral:T.teal)}33`,borderRadius:10,padding:"8px 12px",lineHeight:1.5}}>
+                {parseMsg.err?"⚠ ":"✓ "}{parseMsg.text}
+                {parseMsg.warnings&&parseMsg.warnings.map((w,i)=><div key={i} style={{color:T.amber,marginTop:3,fontWeight:500}}>· {w}</div>)}
+              </div>
+            )}
+          </div>
+          <div style={{padding:isMobile?"14px 16px":"16px 20px"}}>
+            {pvBowls>0?(
+              <>
+                <div style={{fontSize:12,fontWeight:800,color:T.navy,marginBottom:10}}>This month, from your counts{parsedMix?" (uploaded, not yet saved)":""}</div>
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:8}}>
+                  {readout("Total bowls",pvBowls.toLocaleString(),`S ${agg.small} · M ${agg.medium} · L ${agg.large}`)}
+                  {readout("Size mix",`${Math.round(agg.small/pvBowls*100)}/${Math.round(agg.medium/pvBowls*100)}/${Math.round(agg.large/pvBowls*100)}`,"S / M / L %")}
+                  {readout("Avg revenue / bowl",`$${fmt(pvAvg)}`,"bowl revenue ÷ bowls")}
+                  {readout("Bowl food cost",`${pvFcp.toFixed(1)}%`,`$${fmt(pvC)} of $${fmt(pvRev)}`,"excl. add-ons · coming soon")}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:8,marginTop:8}}>
+                  {readout("Bowl revenue",`$${fmt(pvRev)}`,"counts × size price")}
+                  {readout("Bowl gross profit",`$${fmt(pvRev-pvC)}`,`${(100-pvFcp).toFixed(1)}% margin`)}
+                  {readout("Other revenue",`$${fmt(pvOther)}`,salesTotal?`${((pvOther/salesTotal)*100).toFixed(0)}% of sales`:"enter total sales")}
+                  {readout("Total sales",`$${fmt(salesTotal)}`,"typed in above")}
+                </div>
+              </>
+            ):(
+              <div style={{fontSize:12.5,color:T.muted,lineHeight:1.6}}>No bowl counts yet for {fMonth||"this month"}. Download the template, fill it from your POS report, and upload — your size mix, average bowl and food cost appear here before you save.</div>
+            )}
+            <div style={{display:"flex",gap:10,marginTop:14,alignItems:"center",flexWrap:"wrap"}}>
+              <button onClick={submit} disabled={saving||!fMonth||(!fL1&&!fL2&&!parsedMix)} style={{background:T.teal,color:"#fff",border:"none",borderRadius:10,padding:"12px 24px",fontSize:14,fontWeight:800,cursor:saving?"not-allowed":"pointer",opacity:saving||!fMonth||(!fL1&&!fL2&&!parsedMix)?0.6:1}}>{saving?"Saving…":"Save month"}</button>
+              {fMonth&&data.sales[fMonth]&&<span style={{fontSize:12,color:T.amber,fontWeight:600}}>⚠ {fMonth} already saved (${(data.sales[fMonth].loc1||0).toLocaleString()} / ${(data.sales[fMonth].loc2||0).toLocaleString()}) — Save overwrites it.</span>}
+            </div>
+          </div>
         </div>
       )}
+
       {(()=>{
-        const MN=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const MN=MNc;
         const now=new Date();
         const periodMonths=()=>{
-          if(period==="month"){const d=new Date(now.getFullYear(),now.getMonth()-off);return[[`${MN[d.getMonth()]} ${d.getFullYear()}`]].flat();}
+          if(period==="month"){const d=new Date(now.getFullYear(),now.getMonth()-off);return[`${MN[d.getMonth()]} ${d.getFullYear()}`];}
           if(period==="quarter"){
             const qStart=Math.floor(now.getMonth()/3)*3;
             const d=new Date(now.getFullYear(),qStart-off*3);
@@ -1177,8 +1320,9 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
         const pm=periodMonths();
         const label=period==="month"?pm[0]:period==="quarter"?`Q${Math.floor(MN.indexOf(pm[0].split(" ")[0])/3)+1} ${pm[0].split(" ")[1]}`:pm[0].split(" ")[1];
         const r=pm.reduce((s,m)=>s+cRev(m,locKey),0);
+        const brev=pm.reduce((s,m)=>s+cBowlRev(m,locKey),0);
         const c=pm.reduce((s,m)=>s+cCOGS(m,locKey),0);
-        const g=r-c,p=r?(c/r)*100:0;
+        const g=brev-c,p=brev?(c/brev)*100:0,other=Math.max(0,r-brev);
         const hasData=pm.some(m=>data.sales[m]);
         return(
           <div style={{...card,marginBottom:16}}>
@@ -1205,9 +1349,8 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
                     });
                   });
                   const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
-                  const blob=new Blob([csv],{type:"text/csv"});
                   const a=document.createElement("a");
-                  a.href=URL.createObjectURL(blob);
+                  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
                   a.download=`westcoast-poke-prices-${label.replace(/\s/g,"-")}.csv`;
                   a.click();URL.revokeObjectURL(a.href);
                 }} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:16,color:T.blue,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>⬇ CSV</button>
@@ -1218,33 +1361,23 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
             ):(
               <>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:isMobile?8:12,marginBottom:loc==="all"?16:0}}>
-                  {[["Revenue",r,T.blue,T.blueL],["COGS",c,p>30?T.coral:T.amber,p>30?T.coralL:T.amberL],["Gross Profit",g,T.teal,T.tealL]].map(([l,v,col,bg])=>(
+                  {[["Total Sales",r,T.blue,T.blueL],["Bowl Food Cost",c,p>30?T.coral:T.amber,p>30?T.coralL:T.amberL],["Bowl Gross Profit",g,T.teal,T.tealL]].map(([l,v,col,bg])=>(
                     <div key={l} style={{background:bg,borderRadius:10,padding:isMobile?"10px 12px":"14px 18px",border:`1px solid ${T.border}`}}>
                       <div style={{fontSize:10,color:T.inkL,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:5}}>{l}</div>
                       <div style={{fontSize:isMobile?18:24,fontWeight:900,color:col,letterSpacing:"-0.5px"}}>${fmt(v)}</div>
                     </div>
                   ))}
                 </div>
-                {(()=>{
-                  const bowlRev=pm.reduce((s,m)=>{
-                    const mx=data.sales[m]?.mix||{};
-                    return s+Object.entries(mx).reduce((t,[b,v])=>{
-                      const units=locKey==="loc1"?(v.loc1||0):locKey==="loc2"?(v.loc2||0):((v.loc1||0)+(v.loc2||0));
-                      return t+units*blendedPrice(b);
-                    },0);
-                  },0);
-                  const other=r-bowlRev;
-                  if(!r||bowlRev<=0)return null;
-                  return(
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 4px 0",fontSize:isMobile?12:13}}>
-                      <span style={{color:T.muted}}>Bowls ≈ ${fmt(bowlRev)} (est. from counts × blended prices) · <strong style={{color:T.slate}}>Other revenue ≈ ${fmt(Math.max(0,other))}</strong> (drinks, sides, extras)</span>
-                    </div>
-                  );
-                })()}
+                {brev>0&&(
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 4px 0",fontSize:isMobile?12:13,flexWrap:"wrap",gap:6}}>
+                    <span style={{color:T.muted}}>Bowls ≈ ${fmt(brev)} (counts × size price) · <strong style={{color:T.slate}}>Other revenue ≈ ${fmt(other)}</strong> (drinks, add-ons, extras)</span>
+                    <span style={{fontSize:11,fontWeight:700,color:T.muted,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px"}}>add-on costs · coming soon</span>
+                  </div>
+                )}
                 {loc==="all"&&(
                   <div style={{borderTop:`1px solid ${T.border}`,paddingTop:14,marginTop:10}}>
                     {["loc1","loc2"].map((l,i)=>{
-                      const lr=pm.reduce((s,m)=>s+cRev(m,l),0),lc=pm.reduce((s,m)=>s+cCOGS(m,l),0),lp=lr?(lc/lr)*100:0;
+                      const lr=pm.reduce((s,m)=>s+cRev(m,l),0),lbr=pm.reduce((s,m)=>s+cBowlRev(m,l),0),lc=pm.reduce((s,m)=>s+cCOGS(m,l),0),lp=lbr?(lc/lbr)*100:0;
                       return(
                         <div key={l} style={{display:"flex",gap:12,alignItems:"center",padding:"6px 0",borderBottom:i===0?`1px solid ${T.border}`:"none"}}>
                           <div style={{fontSize:isMobile?12:14,color:T.slate,fontWeight:600,width:isMobile?90:180,flexShrink:0}}>{data.locations[l]}</div>
@@ -1260,7 +1393,7 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
                   <div style={{borderTop:`1px solid ${T.border}`,paddingTop:12,marginTop:12}}>
                     <div style={{fontSize:11,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:8}}>Months in this period</div>
                     {pm.filter(m=>data.sales[m]).map(m=>{
-                      const mr=cRev(m,locKey),mc=cCOGS(m,locKey),mp=mr?(mc/mr)*100:0;
+                      const mr=cRev(m,locKey),mbr=cBowlRev(m,locKey),mc=cCOGS(m,locKey),mp=mbr?(mc/mbr)*100:0;
                       return(
                         <div key={m} style={{display:"flex",gap:12,alignItems:"center",padding:"5px 0",fontSize:isMobile?12:13}}>
                           <div style={{color:T.slate,fontWeight:600,width:80}}>{m}</div>
@@ -1277,28 +1410,9 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
           </div>
         );
       })()}
-      <div style={{...card,marginBottom:16}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-          <div>
-            <div style={{fontSize:14,fontWeight:700}}>Size mix</div>
-            <div style={{fontSize:11,color:T.muted}}>Share of bowls sold per size · set once from your POS report · powers all blended pricing and costs</div>
-          </div>
-          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-            {["small","medium","large"].map(sz=>(
-              <div key={sz} style={{display:"flex",alignItems:"center",gap:4}}>
-                <span style={{fontSize:11,color:T.muted,fontWeight:700}}>{sz==="small"?"S":sz==="medium"?"M":"L"}</span>
-                <input type="number" inputMode="numeric" min="0" max="100" value={(mixDraft||sizeMix)[sz]} onChange={e=>setMixDraft(p=>({...(p||sizeMix),[sz]:parseInt(e.target.value)||0}))} style={{width:56,background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"7px 8px",color:T.navy,fontSize:13,textAlign:"right",outline:"none"}}/>
-                <span style={{fontSize:11,color:T.muted}}>%</span>
-              </div>
-            ))}
-            {mixDraft&&<button onClick={()=>{onSaveMix(mixDraft);setMixDraft(null);}} style={{background:T.teal,color:"#fff",border:"none",borderRadius:14,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Save mix</button>}
-          </div>
-        </div>
-        {(()=>{const d=mixDraft||sizeMix;const t=(d.small||0)+(d.medium||0)+(d.large||0);return t!==100?<div style={{marginTop:6,fontSize:11,color:T.amber,fontWeight:600}}>Adds to {t}% — weights are normalised automatically, but 100% keeps it honest.</div>:null;})()}
-      </div>
 
       {(()=>{
-        const MNx=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const MNx=MNc;
         const entered=Object.keys(data.sales).sort((a,b)=>new Date("1 "+a)-new Date("1 "+b));
         const pKey=(m)=>{
           if(period==="month")return m;
@@ -1309,33 +1423,32 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
         const groups={};
         entered.forEach(m=>{const k=pKey(m);if(!groups[k])groups[k]=[];groups[k].push(m);});
         const keys=Object.keys(groups).slice(-8);
-        const unitsFor=(b,ms)=>ms.reduce((sum,m)=>{
-          const mx=data.sales[m]?.mix?.[b];if(!mx)return sum;
-          return sum+(locKey==="loc1"?(mx.loc1||0):locKey==="loc2"?(mx.loc2||0):((mx.loc1||0)+(mx.loc2||0)));
-        },0);
+        const unitsFor=(b,ms)=>ms.reduce((sum,m)=>sum+bowlUnitsTotal(m,b,locKey),0);
         const cogsSales=[
           {label:"Sales",color:T.blue,points:keys.map(k=>({label:k,y:groups[k].reduce((sum,m)=>sum+cRev(m,locKey),0)}))},
-          {label:"COGS",color:T.coral,points:keys.map(k=>({label:k,y:groups[k].reduce((sum,m)=>sum+cCOGS(m,locKey),0)}))},
+          {label:"Bowl COGS",color:T.coral,points:keys.map(k=>({label:k,y:groups[k].reduce((sum,m)=>sum+cCOGS(m,locKey),0)}))},
         ];
         const bowlCols=[T.blue,T.teal,T.coral,T.amber,"#8B5CF6","#EC4899","#6366F1","#10B981"];
-        const bowlSeries=Object.entries(data.menu).filter(([,m])=>!m.category||m.category==="classic"||m.category==="byo").map(([b])=>b).map((b,i)=>({label:b,color:bowlCols[i%bowlCols.length],points:keys.map(k=>({label:k,y:unitsFor(b,groups[k])}))}));
-        const top3=Object.entries(data.menu).filter(([,m])=>!m.category||m.category==="classic"||m.category==="byo").map(([b])=>b).map(b=>({b,u:unitsFor(b,entered)})).sort((a,x)=>x.u-a.u).slice(0,3);
-        const profitSeries=top3.map((t,i)=>({label:`${t.b} profit`,color:bowlCols[i],points:keys.map(k=>({label:k,y:unitsFor(t.b,groups[k])*(blendedPrice(t.b)-bCost(t.b))}))}));
+        const bowlNames=Object.entries(data.menu).filter(([,m])=>isBowl(m)).map(([b])=>b);
+        const bowlSeries=bowlNames.map((b,i)=>({label:b,color:bowlCols[i%bowlCols.length],points:keys.map(k=>({label:k,y:unitsFor(b,groups[k])}))}));
+        const top3=bowlNames.map(b=>({b,u:unitsFor(b,entered)})).sort((a,x)=>x.u-a.u).slice(0,3);
+        const bowlProfit=(b,ms)=>ms.reduce((sum,m)=>sum+SZ.reduce((s,sz)=>s+bowlUnits(m,b,sz,locKey)*(priceFor(data.menu[b]||{},sz)-costSz(b,sz)),0),0);
+        const profitSeries=top3.map((t,i)=>({label:`${t.b} profit`,color:bowlCols[i],points:keys.map(k=>({label:k,y:bowlProfit(t.b,groups[k])}))}));
         return(
           <>
             <div style={{...card,marginBottom:16}}>
-              <h3 style={{margin:"0 0 4px",fontSize:isMobile?15:18,fontWeight:800}}>COGS vs Sales trend</h3>
+              <h3 style={{margin:"0 0 4px",fontSize:isMobile?15:18,fontWeight:800}}>Bowl COGS vs Sales trend</h3>
               <div style={{fontSize:12,color:T.muted,marginBottom:12}}>Grouped by {period} · {locKey==="all"?"both locations":data.locations[locKey]}</div>
               <MultiLine series={cogsSales} T={T}/>
             </div>
             <div style={{...card,marginBottom:16}}>
               <h3 style={{margin:"0 0 4px",fontSize:isMobile?15:18,fontWeight:800}}>Units sold per bowl</h3>
-              <div style={{fontSize:12,color:T.muted,marginBottom:12}}>What sells best · needs bowl counts entered with monthly sales</div>
+              <div style={{fontSize:12,color:T.muted,marginBottom:12}}>What sells best · needs bowl counts uploaded with monthly sales</div>
               <MultiLine series={bowlSeries} T={T} money={false}/>
             </div>
             <div style={{...card,marginBottom:16}}>
               <h3 style={{margin:"0 0 4px",fontSize:isMobile?15:18,fontWeight:800}}>Top 3 sellers · net profit</h3>
-              <div style={{fontSize:12,color:T.muted,marginBottom:12}}>Best sellers ranked by what they actually earn · profit uses current recipe costs</div>
+              <div style={{fontSize:12,color:T.muted,marginBottom:12}}>Best sellers ranked by what they actually earn · profit uses current recipe costs, per size</div>
               <MultiLine series={profitSeries} T={T}/>
             </div>
           </>
@@ -1344,7 +1457,7 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
 
       <div style={card}>
         {(()=>{window.__salesPeriodMonth=(()=>{
-          const MNz=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+          const MNz=MNc;
           const now=new Date();
           if(period==="month"){const d=new Date(now.getFullYear(),now.getMonth()-off);return `${MNz[d.getMonth()]} ${d.getFullYear()}`;}
           if(period==="quarter"){const qs=Math.floor(now.getMonth()/3)*3;const d=new Date(now.getFullYear(),qs-off*3+2);return `${MNz[d.getMonth()]} ${d.getFullYear()}`;}
@@ -1360,7 +1473,7 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,bCost,b
         </div>
         <p style={{margin:"0 0 14px",fontSize:isMobile?12:13,color:T.muted,lineHeight:1.6}}>Each bowl costed at the prices you were actually paying in this period — the margin that month genuinely made. Flip periods with the arrows above to watch costs creep or ease. Today's costs and what-if testing live on the Menu page.</p>
         <div style={{display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",columnGap:32}}>
-          {Object.entries(data.menu).filter(([,md])=>!md.category||md.category==="classic"||md.category==="byo").map(([item,md])=>{
+          {Object.entries(data.menu).filter(([,md])=>isBowl(md)).map(([item,md])=>{
             const cost=mcaSz==="agg"?bCostAtApp(item,window.__salesPeriodMonth||""):costSzAt(item,mcaSz,window.__salesPeriodMonth||"");
             const sell=mcaSz==="agg"?blendedPrice(item):priceFor(md,mcaSz);
             const fp=sell?(cost/sell)*100:0,mg=sell?((sell-cost)/sell)*100:0;
@@ -1419,16 +1532,28 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
             <div style={card}>
               <div style={{fontSize:isMobile?16:18,fontWeight:800,marginBottom:4}}>{scanRes.items?.length} items found</div>
               <div style={{fontSize:13,color:T.muted,marginBottom:14}}>{scanRes.supplier} · {scanRes.date}</div>
-              {scanRes.items?.map((it,i)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:`1px solid ${T.border}`,fontSize:isMobile?13:15}}>
-                  <span style={{fontWeight:600}}>{it.ingredient}</span>
-                  <span style={{color:T.blue,fontWeight:700}}>${fmt(it.price)}/{it.unit}</span>
+              {(()=>{const nonFood=(scanRes.items||[]).filter(it=>!isCOGSCat(it.category)).length;return(
+                <>
+                {scanRes.items?.map((it,i)=>{const cogs=isCOGSCat(it.category);return(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:`1px solid ${T.border}`,fontSize:isMobile?13:15,opacity:cogs?1:0.6}}>
+                    <span style={{fontWeight:600,flex:1,minWidth:0}}>{it.ingredient}</span>
+                    <span style={{fontSize:10,fontWeight:700,color:cogs?T.teal:T.muted,background:cogs?T.tealL:T.bg,border:`1px solid ${T.border}`,padding:"2px 8px",borderRadius:20,whiteSpace:"nowrap"}}>{it.category||"Other"}{!cogs?" · not food cost":""}</span>
+                    <span style={{color:T.blue,fontWeight:700,whiteSpace:"nowrap"}}>${fmt(it.price)}/{it.unit}</span>
+                  </div>
+                );})}
+                {nonFood>0&&<div style={{marginTop:12,fontSize:12,color:T.slate,background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px",lineHeight:1.6}}>{nonFood} non-food line{nonFood!==1?"s":""} (packaging, cleaning, equipment, etc.) {nonFood!==1?"are":"is"} excluded from food cost and profitability. {nonFood!==1?"They stay":"It stays"} in the parsed receipt download below.</div>}
+                <div style={{display:"flex",gap:10,marginTop:16,flexWrap:"wrap"}}>
+                  <button onClick={()=>okScan()} style={{flex:"2 1 160px",background:T.teal,color:"#fff",border:"none",borderRadius:12,padding:isMobile?"13px":"15px",fontSize:isMobile?14:16,cursor:"pointer",fontWeight:800}}>Save food items to Tracker</button>
+                  <button onClick={()=>{
+                    const rows=[["Supplier","Date","Category","Ingredient","Unit price","Unit","Quantity","Line total","Counts to food cost"]];
+                    (scanRes.items||[]).forEach(it=>rows.push([scanRes.supplier||"Unknown",scanRes.date||"",it.category||"Other",it.ingredient,it.price,it.unit||"",it.quantity??"",it.line_total??"",isCOGSCat(it.category)?"Yes":"No"]));
+                    const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+                    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`parsed-receipt-${(scanRes.supplier||"receipt").replace(/\s+/g,"-")}-${scanRes.date||""}.csv`;a.click();URL.revokeObjectURL(a.href);
+                  }} style={{flex:"1 1 130px",background:T.blueL,border:`1px solid ${T.border}`,borderRadius:12,color:T.blue,padding:isMobile?"13px":"15px",fontSize:13,fontWeight:700,cursor:"pointer"}}>⬇ Parsed CSV</button>
+                  <button onClick={()=>setScanRes(null)} style={{flex:"0 1 90px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:12,color:T.muted,padding:isMobile?"13px":"15px",fontSize:13,cursor:"pointer"}}>Discard</button>
                 </div>
-              ))}
-              <div style={{display:"flex",gap:10,marginTop:16}}>
-                <button onClick={()=>okScan()} style={{flex:2,background:T.teal,color:"#fff",border:"none",borderRadius:12,padding:isMobile?"13px":"15px",fontSize:isMobile?14:16,cursor:"pointer",fontWeight:800}}>Save to Tracker</button>
-                <button onClick={()=>setScanRes(null)} style={{flex:1,background:"transparent",border:`1px solid ${T.border}`,borderRadius:12,color:T.muted,padding:isMobile?"13px":"15px",fontSize:13,cursor:"pointer"}}>Discard</button>
-              </div>
+                </>
+              );})()}
             </div>
           )}
         </div>
