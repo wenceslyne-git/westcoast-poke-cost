@@ -44,6 +44,7 @@ export async function loadAll() {
   return {
     ingredients, suppliers, menu: menuObj, sales: salesObj,
     receipts: (recs.data || []).map(r => r.fingerprint),
+    receiptInvoices: (recs.data || []).filter(r => r.invoice_number).map(r => `${(r.supplier || "").toLowerCase().trim()}|${String(r.invoice_number).toLowerCase().trim()}`),
     locations: DATA.locations,
     alerts: alertsObj,
   };
@@ -90,6 +91,7 @@ export async function saveReceipt(result, location = "all") {
     item_count: result.items.length, location,
     gross_total: result.gross_total != null ? result.gross_total : null,
     invoice_total: result.invoice_total != null ? result.invoice_total : null,
+    invoice_number: result.invoice_number || null,
   });
   if (rErr && !rErr.message?.includes("duplicate")) throw rErr;
 
@@ -122,6 +124,8 @@ export async function loadReceipts() {
     itemCount: r.item_count || 0,
     gross: r.gross_total != null ? Number(r.gross_total) : null,
     invoice: r.invoice_total != null ? Number(r.invoice_total) : null,
+    invoiceNumber: r.invoice_number || "",
+    savedAt: r.created_at || null,
     fingerprint: r.fingerprint,
   }));
 }

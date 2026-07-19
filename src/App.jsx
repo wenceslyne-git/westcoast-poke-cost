@@ -255,7 +255,8 @@ export default function App(){
         ?{type:"document",source:{type:"base64",media_type:"application/pdf",data:img.b64}}
         :{type:"image",source:{type:"base64",media_type:img.mime||"image/jpeg",data:img.b64}};
       const knownList=[...new Set([...CATALOG.map(c=>c.name),...Object.keys(data.ingredients)])].sort((a,b)=>a.localeCompare(b)).join(", ");
-      const prompt='Parse this supplier receipt or invoice for a poke restaurant in Vancouver. Return ONLY JSON no markdown: {"supplier":"name or Unknown","date":"YYYY-MM-DD","gross_total":0.00,"invoice_total":0.00,"items":[{"ingredient":"canonical name","category":"CATEGORY","known":true,"price":0.00,"unit":"lb","quantity":1,"line_total":0.00}]}.\n'
+      const prompt='Parse this supplier receipt or invoice for a poke restaurant in Vancouver. Return ONLY JSON no markdown: {"supplier":"name or Unknown","date":"YYYY-MM-DD","invoice_number":"as printed, or empty","gross_total":0.00,"invoice_total":0.00,"items":[{"ingredient":"canonical name","category":"CATEGORY","known":true,"price":0.00,"unit":"lb","quantity":1,"line_total":0.00}]}.\n'
+        +'invoice_number = the invoice or receipt number exactly as printed (letters and digits). If none is shown, use an empty string — never invent one.\n'
         +'This business already tracks these ingredients (its master list): '+knownList+'.\n'
         +'For each purchased line: strip pack size, weight, grade, brand, and marketing words, then map it to the SINGLE closest name on the master list above and return that exact name with "known":true. Example: "AHI TUNA SAKU 6OZ GRADE-A FROZEN" -> "Ahi Tuna". If a line clearly does not match anything on the list, return a short clean generic name (no descriptors) with "known":false so the user can decide whether to add it. Do not invent a match — when unsure, use "known":false.\n'
         +'category = the single best fit from exactly this list: Protein, Base, Vegetables, Fruit, Sauces, Toppings, Packaging, Drinks, Cleaning, Equipment, Other.\n'
@@ -278,7 +279,9 @@ export default function App(){
           return {...a,tracked,isNew:!a.matched&&!tracked&&a.food,state:a.food?"food":"nonfood"};
         });
         const fp=`${parsed.supplier}|${parsed.date}|${parsed.items?.length}`;
-        if((data.receipts||[]).includes(fp)){setModal(parsed);}
+        const invKey=parsed.invoice_number?`${String(parsed.supplier||"").toLowerCase().trim()}|${String(parsed.invoice_number).toLowerCase().trim()}`:null;
+        const isDup=(invKey&&(data.receiptInvoices||[]).includes(invKey))||(data.receipts||[]).includes(fp);
+        if(isDup){setModal(parsed);}
         else{setScanRes(parsed);say(`Found ${parsed.items?.length||0} items on receipt`);}
       }
     }catch(e){say("Could not parse receipt — try a clearer photo",true);}
@@ -1789,11 +1792,12 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
   const removeLine=i=>setScanRes(r=>({...r,items:r.items.filter((_,j)=>j!==i)}));
   const setTotal=(k,v)=>setScanRes(r=>({...r,[k]:v===""?null:parseFloat(v)}));
 
-  const csvFromLines=(supplier,date,lines,withFlag)=>{
-    const head=["Supplier","Date","Category","Ingredient","Unit price","Unit","Quantity","Line total"];
+  const csvFromLines=(supplier,date,lines,withFlag,meta={})=>{
+    const head=["Supplier","Date","Invoice #","Saved","Category","Ingredient","Unit price","Unit","Quantity","Line total"];
     if(withFlag)head.push("Counts to food cost");
+    const inv=meta.invoiceNumber||"";const saved=meta.savedAt?String(meta.savedAt).slice(0,10):"";
     const rows=[head];
-    lines.forEach(it=>{const row=[supplier||"Unknown",date||"",it.category||"Other",it.ingredient,it.price,it.unit||"",it.quantity??"",it.line_total??""];if(withFlag)row.push((it.state?it.state==="food":(it.food!==undefined?it.food:isCOGSCat(it.category)))?"Yes":"No");rows.push(row);});
+    lines.forEach(it=>{const row=[supplier||"Unknown",date||"",inv,saved,it.category||"Other",it.ingredient,it.price,it.unit||"",it.quantity??"",it.line_total??""];if(withFlag)row.push((it.state?it.state==="food":(it.food!==undefined?it.food:isCOGSCat(it.category)))?"Yes":"No");rows.push(row);});
     return rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
   };
   const download=(name,csv)=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=name;a.click();URL.revokeObjectURL(a.href);};
@@ -1818,8 +1822,8 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
   };
   const downloadAll=()=>{
     if(!filtered.length)return;
-    const rows=[["Supplier","Date","Category","Ingredient","Unit price","Unit"]];
-    filtered.forEach(r=>linesFor(r).forEach(it=>rows.push([r.supplier,r.date,it.category||"Other",it.ingredient,it.price,it.unit||""])));
+    const rows=[["Supplier","Date","Invoice #","Saved","Category","Ingredient","Unit price","Unit"]];
+    filtered.forEach(r=>linesFor(r).forEach(it=>rows.push([r.supplier,r.date,r.invoiceNumber||"",r.savedAt?String(r.savedAt).slice(0,10):"",it.category||"Other",it.ingredient,it.price,it.unit||""])));
     download(`receipts-${view.label.replace(/\s/g,"-")}.csv`,rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n"));
   };
 
@@ -1861,7 +1865,11 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
           {scanRes&&!scanning&&(
             <div style={{...card,borderColor:T.amber}}>
               <div style={{fontSize:isMobile?16:18,fontWeight:800,marginBottom:2}}>Review &amp; correct</div>
-              <div style={{fontSize:13,color:T.muted,marginBottom:12}}>{scanRes.supplier} · {scanRes.date} · {scanRes.items?.length} lines</div>
+              <div style={{fontSize:13,color:T.muted,marginBottom:10}}>{scanRes.supplier} · {scanRes.date} · {scanRes.items?.length} lines</div>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+                <span style={{fontSize:10,color:T.muted,fontWeight:700}}>INVOICE #</span>
+                <input value={scanRes.invoice_number??""} onChange={e=>setScanRes(r=>({...r,invoice_number:e.target.value}))} placeholder="as printed (blank if none)" style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"7px 10px",color:T.navy,fontSize:13,outline:"none",minWidth:200}}/>
+              </div>
               <div style={{background:T.amberL,border:`1px solid ${T.amber}44`,borderRadius:10,padding:"10px 12px",fontSize:12.5,color:T.slate,lineHeight:1.6,marginBottom:14}}>⚠ Check every line before accepting — fix shortened names, wrong categories, or discounted prices the AI misread. Set anything unrelated to the business to <strong>Exclude</strong>. <strong>Once you accept, this can't be edited</strong> — you'd re-scan the receipt.</div>
 
               <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1.5fr 1.1fr 0.8fr 0.6fr 1.3fr auto",gap:8,alignItems:"center",fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px",padding:"0 2px 6px"}}>
@@ -1910,7 +1918,7 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
 
               <div style={{display:"flex",gap:10,marginTop:16,flexWrap:"wrap"}}>
                 <button onClick={()=>okScan()} style={{flex:"2 1 180px",background:T.teal,color:"#fff",border:"none",borderRadius:12,padding:isMobile?"13px":"15px",fontSize:isMobile?14:16,cursor:"pointer",fontWeight:800}}>Accept &amp; save</button>
-                <button onClick={()=>download(`parsed-receipt-${(scanRes.supplier||"receipt").replace(/\s+/g,"-")}-${scanRes.date||""}.csv`,csvFromLines(scanRes.supplier,scanRes.date,(scanRes.items||[]).filter(it=>it.state!=="exclude"),true))} style={{flex:"1 1 130px",background:T.blueL,border:`1px solid ${T.border}`,borderRadius:12,color:T.blue,padding:isMobile?"13px":"15px",fontSize:13,fontWeight:700,cursor:"pointer"}}>⬇ Parsed CSV</button>
+                <button onClick={()=>download(`parsed-receipt-${(scanRes.supplier||"receipt").replace(/\s+/g,"-")}-${scanRes.date||""}.csv`,csvFromLines(scanRes.supplier,scanRes.date,(scanRes.items||[]).filter(it=>it.state!=="exclude"),true,{invoiceNumber:scanRes.invoice_number}))} style={{flex:"1 1 130px",background:T.blueL,border:`1px solid ${T.border}`,borderRadius:12,color:T.blue,padding:isMobile?"13px":"15px",fontSize:13,fontWeight:700,cursor:"pointer"}}>⬇ Parsed CSV</button>
                 <button onClick={()=>{setScanRes(null);setImg(null);}} style={{flex:"0 1 90px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:12,color:T.muted,padding:isMobile?"13px":"15px",fontSize:13,cursor:"pointer"}}>Discard</button>
               </div>
             </div>
@@ -1944,7 +1952,7 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
                   <th style={{padding:"9px 8px",fontWeight:700}}>Supplier</th>
                   <th style={{padding:"9px 8px",fontWeight:700}}>Location</th>
                   <th style={{padding:"9px 8px",fontWeight:700,textAlign:"right"}}>Items</th>
-                  <th style={{padding:"9px 8px",fontWeight:700,textAlign:"right"}}>Gross</th>
+                  <th style={{padding:"9px 8px",fontWeight:700}}>Invoice #</th>
                   <th style={{padding:"9px 8px",fontWeight:700,textAlign:"right"}}>Invoice</th>
                   <th style={{padding:"9px 14px",fontWeight:700,textAlign:"right"}}>Actions</th>
                 </tr>
@@ -1960,10 +1968,10 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
                     <td style={{padding:"10px 8px",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",maxWidth:160}}>{r.supplier}</td>
                     <td style={{padding:"10px 8px",color:T.muted,whiteSpace:"nowrap"}}>{r.location==="loc1"?locations.loc1:r.location==="loc2"?locations.loc2:"Shared"}</td>
                     <td style={{padding:"10px 8px",textAlign:"right",color:T.muted}}>{r.itemCount}</td>
-                    <td style={{padding:"10px 8px",textAlign:"right"}}>{r.gross!=null?`$${fmt(r.gross)}`:"—"}</td>
+                    <td style={{padding:"10px 8px",color:T.slate,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:120}}>{r.invoiceNumber||"—"}</td>
                     <td style={{padding:"10px 8px",textAlign:"right",fontWeight:600}}>{r.invoice!=null?`$${fmt(r.invoice)}`:"—"}</td>
                     <td style={{padding:"10px 14px",textAlign:"right",whiteSpace:"nowrap"}}>
-                      <button onClick={()=>download(`receipt-${(r.supplier||"").replace(/\s+/g,"-")}-${r.date}.csv`,csvFromLines(r.supplier,r.date,linesFor(r),false))} title="Download CSV" aria-label="Download CSV" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.blue,padding:"5px 8px",fontSize:12,cursor:"pointer",marginRight:6}}>⬇</button>
+                      <button onClick={()=>download(`receipt-${(r.supplier||"").replace(/\s+/g,"-")}-${r.date}.csv`,csvFromLines(r.supplier,r.date,linesFor(r),false,{invoiceNumber:r.invoiceNumber,savedAt:r.savedAt}))} title="Download CSV" aria-label="Download CSV" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.blue,padding:"5px 8px",fontSize:12,cursor:"pointer",marginRight:6}}>⬇</button>
                       <button onClick={()=>delReceipt(r)} disabled={busy===r.id} title="Delete receipt (cannot be undone)" aria-label="Delete receipt" style={{background:"none",border:`1px solid ${T.coral}55`,borderRadius:8,color:T.coral,padding:"5px 9px",fontSize:13,cursor:busy===r.id?"wait":"pointer",opacity:busy===r.id?0.5:1}}>×</button>
                     </td>
                   </tr>
@@ -1974,7 +1982,7 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
           {filtered.length>0&&(
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:isMobile?"10px 14px":"12px 18px",borderTop:`1px solid ${T.border}`,fontSize:13,flexWrap:"wrap",gap:6}}>
               <span style={{color:T.muted}}>{filtered.length} receipt{filtered.length!==1?"s":""} · {view.label}</span>
-              <span style={{color:T.muted}}>Gross ${fmt(sumG)} · <span style={{color:T.navy,fontWeight:700}}>Invoice ${fmt(sumI)}</span></span>
+              <span style={{color:T.muted}}><span style={{color:T.navy,fontWeight:700}}>Invoice total ${fmt(sumI)}</span></span>
             </div>
           )}
         </div>
