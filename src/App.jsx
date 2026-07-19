@@ -2336,7 +2336,7 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedP
                   <div style={{fontSize:11,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:6}}>{(m.category==="side"||m.category==="drink")?"Portion · actual quantities used":`${SZL[edSz]} bowl · actual quantities used`}</div>
                   {Object.entries(draft.ing[edSz]).map(([ing,qty])=>(
                     <div key={ing} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${T.border}`}}>
-                      <div style={{flex:1,fontSize:14,fontWeight:600}}>{ing}</div>
+                      <div style={{flex:1,fontSize:14,fontWeight:600}}>{ing}{!(data.ingredients[ing]&&data.ingredients[ing].length)&&<span title="No recorded price yet — add one in Ingredients for this to affect cost" style={{marginLeft:8,fontSize:9,fontWeight:700,color:T.amber,background:T.amberL,border:`1px solid ${T.amber}44`,padding:"1px 6px",borderRadius:9,whiteSpace:"nowrap",textTransform:"uppercase",letterSpacing:"0.4px"}}>no price</span>}</div>
                       <input type="number" inputMode="decimal" step="0.01" value={qty} onChange={e=>setDraft(p=>{const v=e.target.value;if(m.category==="side"||m.category==="drink"){return{...p,ing:{small:{...p.ing.small,[ing]:v},medium:{...p.ing.medium,[ing]:v},large:{...p.ing.large,[ing]:v}}};}return{...p,ing:{...p.ing,[edSz]:{...p.ing[edSz],[ing]:v}}};})} style={{...inp,width:80,textAlign:"right"}}/>
                       <div style={{fontSize:12,color:T.muted,width:44}}>{baseU(data.ingredients[ing]?.[0]?.unit)}</div>
                       <div style={{fontSize:13,fontWeight:600,color:T.slate,width:64,textAlign:"right"}}>${fmt(gIL(ing)*(parseFloat(qty)||0))}</div>
@@ -2347,8 +2347,8 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedP
 
                   <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap"}}>
                     <select value={addSel} onChange={e=>addIng(e.target.value)} style={{...inp,flex:1,minWidth:150}}>
-                      <option value="">Add ingredient (all sizes)...</option>
-                      {Object.keys(data.ingredients).filter(i=>!(i in draft.ing.medium)).map(i=><option key={i} value={i}>{i}</option>)}
+                      <option value="">Add to recipe…</option>
+                      {[...new Set([...CATALOG.map(c=>c.name),...(data.customIngredients||[]).map(c=>c.name),...Object.keys(data.ingredients)])].sort((a,b)=>a.localeCompare(b)).filter(i=>!(i in draft.ing.medium)).map(i=><option key={i} value={i}>{i}{(data.ingredients[i]&&data.ingredients[i].length)?"":" — no price yet"}</option>)}
                     </select>
                     <button onClick={save} disabled={saving} style={{background:T.teal,color:"#fff",border:"none",borderRadius:10,padding:"10px 22px",fontSize:14,fontWeight:800,cursor:"pointer",opacity:saving?0.6:1}}>{saving?"Saving...":"Save all sizes"}</button>
                     <button onClick={()=>{setSel(null);setDraft(null);}} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:10,color:T.muted,padding:"10px 16px",fontSize:13,cursor:"pointer"}}>Cancel</button>
