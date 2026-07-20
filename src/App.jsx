@@ -101,6 +101,13 @@ export default function App(){
     return ()=>sub.subscription.unsubscribe();
   },[]);
   const signOut=()=>supabase.auth.signOut();
+  // sign-out needs a confirm click so a stray tap doesn't end the session
+  const [confirmSignOut,setConfirmSignOut]=useState(false);
+  useEffect(()=>{
+    if(!confirmSignOut)return;
+    const t=setTimeout(()=>setConfirmSignOut(false),4000);
+    return ()=>clearTimeout(t);
+  },[confirmSignOut]);
 
   // ── load data from database once signed in ──
   const [dbLoading,setDbLoading]=useState(false);
@@ -731,7 +738,15 @@ export default function App(){
         <div style={{display:"flex",gap:isMobile?4:8,alignItems:"center",flexShrink:0}}>
           <button onClick={()=>setTab("scan")} className="wpHovS" {...tipBelow("Scan receipt")} aria-label="Scan receipt" style={{background:T.blue,border:"none",borderRadius:20,padding:isMobile?"6px 8px":"7px 16px",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}><HdrIcon id="camera" size={isMobile?18:18}/>{!isMobile&&<span>Scan receipt</span>}</button>
           <a href={`mailto:wenceslyne@elitelvlservices.com?subject=${encodeURIComponent("Westcoast Poke Support Request")}&body=${encodeURIComponent(`Question about: \n\n\n—\nFrom: ${session.user?.email||"unknown user"}`)}`} className="wpHovG" {...tipBelow("Email support")} aria-label="Help" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.muted,padding:isMobile?"5px 8px":"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6,textDecoration:"none"}}><HdrIcon id="help" size={isMobile?17:18}/>{!isMobile&&<span>Help</span>}</a>
-          <button onClick={signOut} className="wpHovG" {...tipBelow(session.user?.email||"Sign out")} aria-label="Sign out" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.muted,padding:isMobile?"5px 8px":"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}><HdrIcon id="signout" size={isMobile?17:18}/>{!isMobile&&<span>Sign out</span>}</button>
+          {confirmSignOut?(
+            <span style={{display:"flex",alignItems:"center",gap:4,border:`1px solid ${T.border}`,borderRadius:20,padding:isMobile?"4px 6px":"5px 10px",whiteSpace:"nowrap"}}>
+              {!isMobile&&<span style={{fontSize:12,fontWeight:700,color:T.slate}}>Sign out?</span>}
+              <button onClick={signOut} aria-label="Confirm sign out" style={{background:T.blue,border:"none",borderRadius:14,color:"#fff",padding:isMobile?"3px 8px":"3px 10px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{isMobile?"Sign out":"Yes"}</button>
+              <button onClick={()=>setConfirmSignOut(false)} aria-label="Cancel sign out" style={{background:"none",border:"none",color:T.muted,padding:"3px 4px",fontSize:13,fontWeight:700,cursor:"pointer",lineHeight:1}}>✕</button>
+            </span>
+          ):(
+          <button onClick={()=>setConfirmSignOut(true)} className="wpHovG" {...tipBelow(session.user?.email||"Sign out")} aria-label="Sign out" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.muted,padding:isMobile?"5px 8px":"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}><HdrIcon id="signout" size={isMobile?17:18}/>{!isMobile&&<span>Sign out</span>}</button>
+          )}
           <button onClick={()=>setDark(v=>!v)} className="wpHovG" aria-label={dark?"Switch to light mode":"Switch to dark mode"} {...tipBelow(dark?"Light mode":"Dark mode")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:"50%",width:isMobile?32:34,height:isMobile?32:34,color:T.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}><HdrIcon id={dark?"sun":"moon"} size={isMobile?17:18}/></button>
         </div>
       </div>
