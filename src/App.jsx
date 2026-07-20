@@ -1034,7 +1034,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
       )}
 
       {/* Location comparison (wider) + What to push side by side on desktop; stacked on mobile */}
-      <div style={{display:"grid",gridTemplateColumns:isDesktop&&loc==="all"?"1fr 1fr":"1fr",gap:isMobile?12:16,marginBottom:isMobile?12:16,alignItems:"stretch"}}>
+      <div style={{display:"grid",gridTemplateColumns:isDesktop&&loc==="all"?"repeat(2,minmax(0,1fr))":"minmax(0,1fr)",gap:isMobile?12:16,marginBottom:isMobile?12:16,alignItems:"stretch"}}>
         {loc==="all"&&latMon&&(
           <div style={{...card,display:"flex",flexDirection:"column"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
@@ -1083,7 +1083,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
         )}
 
         {/* Row 2: Best price today + Buy it today, equal width and height */}
-        <div style={{gridColumn:"1 / -1",order:2,display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",gap:isMobile?12:16,alignItems:"stretch"}}>
+        <div style={{gridColumn:"1 / -1",order:2,display:"grid",gridTemplateColumns:isDesktop?"repeat(2,minmax(0,1fr))":"minmax(0,1fr)",gap:isMobile?12:16,alignItems:"stretch"}}>
         <div style={{...card,border:`1.5px solid ${T.blue}66`,height:"100%"}}>
           <div style={{fontSize:9.5,fontWeight:800,color:T.blue,background:T.blueL,border:`1px solid ${T.blue}44`,borderRadius:20,padding:"3px 10px",display:"inline-block",letterSpacing:"0.8px",marginBottom:8}}>⚡ QUICK WIN</div>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2,flexWrap:"wrap"}}>
@@ -1191,7 +1191,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
         </div>
       )}
 
-      <div style={{display:"grid",gridTemplateColumns:isDesktop?`repeat(${actions.length},1fr)`:"1fr",gap:isMobile?10:14}}>
+      <div style={{display:"grid",gridTemplateColumns:isDesktop?`repeat(${actions.length},minmax(0,1fr))`:"minmax(0,1fr)",gap:isMobile?10:14}}>
         {actions.map((a,i)=>(
           <div key={i} style={{...card}}>
             <div style={{fontSize:10,color:a.color,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:800,marginBottom:10}}>{a.icon} ACTION</div>
@@ -2434,7 +2434,7 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
         return(
           <>
             {/* Row 3 (item 12): COGS vs Sales + Top 3 sellers side by side on desktop */}
-            <div style={{display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",gap:isMobile?10:16,marginBottom:16}}>
+            <div style={{display:"grid",gridTemplateColumns:isDesktop?"repeat(2,minmax(0,1fr))":"minmax(0,1fr)",gap:isMobile?10:16,marginBottom:16}}>
               <div style={card}>
                 <h3 style={{margin:"0 0 4px",fontSize:isMobile?15:18,fontWeight:800}}>Bowl COGS vs Sales trend</h3>
                 <div style={{fontSize:12,color:T.muted,marginBottom:12}}>Grouped by {period} · {locKey==="all"?"both locations":data.locations[locKey]}</div>
