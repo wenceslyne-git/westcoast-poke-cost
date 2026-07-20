@@ -734,7 +734,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
       {/* Current-month strip — the annual target and year view live on the Sales tab */}
       {latMon&&(
         <div style={{marginBottom:isMobile?14:20}}>
-          <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:8}}>This month · {latMon} · {locName(loc)}</div>
+          <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:8}}>This month</div>
           <div style={{display:"grid",gridTemplateColumns:isDesktop?"repeat(4,minmax(0,1fr))":"repeat(2,minmax(0,1fr))",gap:isMobile?10:14}}>
             {(()=>{
               const split=k=>loc==="all"?k:null;
