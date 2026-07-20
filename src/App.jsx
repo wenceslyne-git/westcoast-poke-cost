@@ -802,7 +802,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
       )}
 
       {/* Location comparison (wider) + What to push side by side on desktop; stacked on mobile */}
-      <div style={{display:"grid",gridTemplateColumns:isDesktop&&loc==="all"?"1.6fr 1fr":"1fr",gap:isMobile?12:16,marginBottom:isMobile?12:16,alignItems:"stretch"}}>
+      <div style={{display:"grid",gridTemplateColumns:isDesktop&&loc==="all"?"1fr 1fr":"1fr",gap:isMobile?12:16,marginBottom:isMobile?12:16,alignItems:"stretch"}}>
         {loc==="all"&&latMon&&(
           <div style={card}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
@@ -922,7 +922,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
               <div style={{fontSize:13,fontWeight:700,color:T.slate,marginBottom:4}}>Nothing to rank yet</div>
               <div style={{fontSize:12,lineHeight:1.6}}>Bowl costs build as you scan receipts or add prices. Once your ingredients have real prices, this ranking appears automatically.</div>
             </div>
-          ):Object.entries(data.menu).filter(([,m])=>!m.category||m.category==="classic"||m.category==="byo").map(([b])=>({b,margin:bMargin(b),profit:blendedPrice(b)-bCost(b)})).sort((a,b)=>b.profit-a.profit).map((r,i,arr)=>(
+          ):Object.entries(data.menu).filter(([,m])=>!m.category||m.category==="classic"||m.category==="byo").map(([b])=>({b,margin:bMargin(b),profit:blendedPrice(b)-bCost(b)})).sort((a,b)=>b.profit-a.profit).slice(0,3).map((r,i,arr)=>(
             <div key={r.b} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:i<arr.length-1?`1px solid ${T.border}`:"none"}}>
               <div style={{width:22,height:22,borderRadius:"50%",background:i===0?T.teal:T.bg,color:i===0?"#fff":T.muted,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0,border:i===0?"none":`1px solid ${T.border}`}}>{i+1}</div>
               <div style={{flex:1,fontSize:isMobile?13:14,fontWeight:600}}>{r.b}{i===0&&<span style={{marginLeft:8,fontSize:10,color:T.teal,fontWeight:800}}>PUSH</span>}</div>
