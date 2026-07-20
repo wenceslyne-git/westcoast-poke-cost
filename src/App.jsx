@@ -420,24 +420,19 @@ export default function App(){
     menu:Object.entries(data.menu).map(([name])=>({name,sellBlended:blendedPrice(name).toFixed(2),costBlended:bCost(name).toFixed(2),foodCostPct:bFCP(name).toFixed(1)})),
     sizeMix:derivedMix,
     extras:(()=>{
-      const o=data.sales[latMon]?.mix?.other||{};
-      const g={sides:[],drinks:[],addOns:[]};
-      Object.entries(o).forEach(([item,v])=>{
-        const units=(v.loc1||0)+(v.loc2||0);if(!units)return;
-        const m=data.menu[item];
-        if(m){g[m.category==="drink"?"drinks":"sides"].push({item,units});return;}
-        const c=CATALOG.find(x=>x.name===item&&x.addon);
-        if(c){const price=c.addonPrice||0;g.addOns.push({item,units,sellEach:price,estRevenue:+(units*price).toFixed(2),latestIngredientCost:data.ingredients[item]?.length?`$${gL(data.ingredients[item]).toFixed(2)} per purchase unit (receipts)`:null});}
-        else g.sides.push({item,units});
-      });
-      Object.values(g).forEach(a=>a.sort((x,y)=>y.units-x.units));
-      const bowlCount=bowlsSold||0;
+      const t=data.sales[latMon]?.mix?.totals;
+      const sum=k=>t?(t[k]?.loc1||0)+(t[k]?.loc2||0):0;
+      const sides=sum("sidesRevenue"),drinks=sum("drinksRevenue");
+      const implied=Math.max(0,otherRev-sides-drinks);
+      const legacyUnits=(()=>{const o=data.sales[latMon]?.mix?.other||{};return Object.entries(o).map(([item,v])=>({item,units:(v.loc1||0)+(v.loc2||0)})).filter(x=>x.units>0).sort((a,b)=>b.units-a.units);})();
       return {
         otherRevenue:otherRev.toFixed(2),
         otherRevenuePctOfSales:rev?((otherRev/rev)*100).toFixed(1):"0",
-        ...g,
-        addOnAttach:bowlCount?{addOnUnitsPer100Bowls:+(g.addOns.reduce((s,a)=>s+a.units,0)/bowlCount*100).toFixed(1),estAddOnRevenue:+g.addOns.reduce((s,a)=>s+a.estRevenue,0).toFixed(2)}:null,
-        note:"Sides and drinks: revenue and unit volume only — costs not tracked, never compute their food cost or margin. Add-ons: sellEach is the real menu price so estRevenue (units × price) is a reliable estimate, but add-on portion sizes are not tracked, so any add-on cost/margin from latestIngredientCost is approximate — flag it as an estimate and never fold estimated add-on revenue into total sales figures."
+        sidesRevenue:t?sides.toFixed(2):null,
+        drinksRevenue:t?drinks.toFixed(2):null,
+        impliedAddOnsAndFees:t&&(sides||drinks)?implied.toFixed(2):null,
+        legacyPerItemUnits:legacyUnits.length?legacyUnits:undefined,
+        note:"Sides/drinks are reported as total $ sold (typed from the till summary) — indicative only, no per-item detail and no costs, so never compute extras food cost or margin. impliedAddOnsAndFees = other revenue minus sides minus drinks: an indicative estimate of add-on and fee revenue, label it as such. Never fold any of these into bowl economics."
       };
     })(),
     addOnPricing:ADDONS,
@@ -452,7 +447,7 @@ export default function App(){
   const generateInsights=async()=>{
     setLoadingInsights(true);setAiInsights(null);setInsightsStale(false);
     try{
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:1500,messages:[{role:"user",content:`You are a food cost analyst for Westcoast Poké, a two-location poke restaurant in Vancouver BC. Data: ${buildDataSummary()}\n\nData notes: prices in ingredients are what the restaurant actually pays (receipts). marketSignals are advisory web-check results with dates — use them for comparisons and direction but never treat them as paid prices, and always cite the check date. Give 4-5 specific actionable insights referencing actual numbers, bowls and ingredients from the data. If marketSignals exist, one insight should compare paid vs market with the monthly dollar impact. Also choose ONE focus bowl to push this month using margins, market direction and sales mix together. If extras.addOns has data, include one insight on add-on attach rate or mix (use addOnUnitsPer100Bowls and estRevenue; label any add-on margin as an estimate). Return ONLY JSON no markdown: {"headline":"one punchy sentence on the biggest issue or opportunity","focus":{"bowl":"name","reason":"2 sentences: why this bowl now, citing data","contingency":"one sentence: what to revisit if conditions change"},"insights":[{"priority":"high|medium|low","icon":"emoji","title":"short title with a number","detail":"2-3 sentences with specific numbers","action":"exactly what to do next"}]}`}]})});
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:API_HEADERS(),body:JSON.stringify({model:MODEL,max_tokens:1500,messages:[{role:"user",content:`You are a food cost analyst for Westcoast Poké, a two-location poke restaurant in Vancouver BC. Data: ${buildDataSummary()}\n\nData notes: prices in ingredients are what the restaurant actually pays (receipts). marketSignals are advisory web-check results with dates — use them for comparisons and direction but never treat them as paid prices, and always cite the check date. Give 4-5 specific actionable insights referencing actual numbers, bowls and ingredients from the data. If marketSignals exist, one insight should compare paid vs market with the monthly dollar impact. Also choose ONE focus bowl to push this month using margins, market direction and sales mix together. If extras has sidesRevenue/drinksRevenue data, include one insight on the revenue mix between bowls, sides, drinks and implied add-ons/fees — label all extras figures as indicative. Return ONLY JSON no markdown: {"headline":"one punchy sentence on the biggest issue or opportunity","focus":{"bowl":"name","reason":"2 sentences: why this bowl now, citing data","contingency":"one sentence: what to revisit if conditions change"},"insights":[{"priority":"high|medium|low","icon":"emoji","title":"short title with a number","detail":"2-3 sentences with specific numbers","action":"exactly what to do next"}]}`}]})});
       const out=await res.json();
       const parsed=pickJson(out);
       setAiInsights(parsed);
@@ -643,7 +638,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
       {ytd&&(
         <div style={{marginBottom:isMobile?14:20}}>
           <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:8}}>Year to date · {ytd.year} · {locName(loc)}</div>
-          <div style={{display:"grid",gridTemplateColumns:isDesktop?"repeat(4,1fr)":"repeat(2,1fr)",gap:isMobile?10:14}}>
+          <div style={{display:"grid",gridTemplateColumns:isDesktop?"repeat(4,minmax(0,1fr))":"repeat(2,minmax(0,1fr))",gap:isMobile?10:14}}>
             {(()=>{const l=loc==="all"?"all":loc;const split=k=>loc==="all"?k:null;return[
               {lb:"YTD Sales",v:fmtK2(ytd.sales[l]),split:split(`${data.locations.loc1} ${fmtK2(ytd.sales.loc1)} · ${data.locations.loc2} ${fmtK2(ytd.sales.loc2)}`),col:T.blue,bg:T.blueL},
               {lb:"YTD Food Cost",v:fmtK2(ytd.cogs[l]),extra:`${ytd.fcp[l].toFixed(1)}%`,split:split(`${data.locations.loc1} ${ytd.fcp.loc1.toFixed(1)}% · ${data.locations.loc2} ${ytd.fcp.loc2.toFixed(1)}%`),col:ytd.fcp[l]>30?T.coral:T.amber,bg:ytd.fcp[l]>30?T.coralL:T.amberL},
@@ -1464,8 +1459,8 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,cBowlRe
       [],
       ["How to use"],
       ["1. One file covers ONE month, both locations (one tab per location)."],
-      ["2. On each location tab, fill the yellow count cells from your POS monthly product report."],
-      ["3. Bowls use the S / M / L columns. Everything else (sides, drinks, paid add-ons) uses the One-size column."],
+      ["2. On each location tab, fill the bowl counts from your POS monthly product report."],
+      ["3. Bowls use the S / M / L columns. For sides and drinks, enter the total $ value sold in the One-size column of the two Totals rows."],
       ["4. Enter 0 where nothing sold. Leave the Category / Sub-category columns as they are."],
       ["5. Set the Month cell on each tab to the month you're reporting."],
       ["6. Save, then use ‘Upload counts’ in the app — total sales $ is still typed in by hand."],
@@ -1483,9 +1478,10 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,cBowlRe
       ];
       orderedMenu.forEach(([name,m])=>{
         if(isBowl(m))rows.push(["Bowl",name,"","","",""]);
-        else rows.push([catLabel(m),name,"","",""," "]);
       });
-      CATALOG.filter(c=>c.addon&&(c.addonPrice||0)>0).forEach(c=>rows.push(["Add-on",c.name,"","","",""]));
+      rows.push([]);
+      rows.push(["Totals","Sides — total $ sold","","","",""]);
+      rows.push(["Totals","Drinks — total $ sold","","","",""]);
       const ws=XLSX.utils.aoa_to_sheet(rows);
       ws["!cols"]=[{wch:12},{wch:26},{wch:10},{wch:8},{wch:8},{wch:8}];
       XLSX.utils.book_append_sheet(wb,ws,locName.slice(0,31));
@@ -1501,7 +1497,8 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,cBowlRe
     try{
       const buf=await file.arrayBuffer();
       const wb=XLSX.read(buf,{type:"array"});
-      const mix={bowls:{},other:{}};
+      const mix={bowls:{},other:{},totals:{sidesRevenue:{loc1:0,loc2:0},drinksRevenue:{loc1:0,loc2:0}}};
+      const money=v=>{const n=parseFloat(String(v).replace(/[$,\s]/g,""));return isNaN(n)||n<0?0:Math.round(n*100)/100;};
       const warnings=[];let boundTabs=0;
       wb.SheetNames.filter(n=>n.trim().toLowerCase()!=="read me").forEach(sn=>{
         const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,blankrows:false,defval:""});
@@ -1519,9 +1516,15 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,cBowlRe
         for(let i=hIdx+1;i<aoa.length;i++){
           const r=aoa[i];const cat=String(r[0]||"").trim();const name=String(r[1]||"").trim();
           if(!name)continue;
+          if(cat.toLowerCase()==="totals"){
+            const key=name.toLowerCase().includes("drink")?"drinksRevenue":"sidesRevenue";
+            mix.totals[key][lk]=money(r[2]);
+            continue;
+          }
           const mi=data.menu[name];
           const bowl=mi?isBowl(mi):cat.toLowerCase().includes("bowl");
           if(bowl){
+            if(money(r[2])>0)warnings.push(`Tab “${sn}”: ${name} has a value in One-size — bowls use the S / M / L columns, so it was ignored.`);
             const s=num(r[3]),m=num(r[4]),l=num(r[5]);
             mix.bowls[name]=mix.bowls[name]||{small:{loc1:0,loc2:0},medium:{loc1:0,loc2:0},large:{loc1:0,loc2:0}};
             mix.bowls[name].small[lk]=s;mix.bowls[name].medium[lk]=m;mix.bowls[name].large[lk]=l;
@@ -1537,8 +1540,9 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,cBowlRe
       const hasExisting=Object.keys(data.sales[fMonth]?.mix?.bowls||{}).length>0;
       if(hasExisting&&!window.confirm(`Replace existing counts for ${fMonth}? This overwrites the bowl counts already saved for that month.`)){e.target.value="";return;}
       const tot=Object.keys(mix.bowls).reduce((s,bw)=>s+SZ.reduce((t,sz)=>t+(mix.bowls[bw][sz].loc1||0)+(mix.bowls[bw][sz].loc2||0),0),0);
+      const totRev=["sidesRevenue","drinksRevenue"].reduce((s,k)=>s+mix.totals[k].loc1+mix.totals[k].loc2,0);
       setParsedMix(mix);
-      setParseMsg({err:false,text:`Imported ${tot} bowls across ${boundTabs} location tab${boundTabs>1?"s":""}.`,warnings});
+      setParseMsg({err:false,text:`Imported ${tot} bowls${totRev?` and $${totRev.toFixed(2)} of sides/drinks`:""} across ${boundTabs} location tab${boundTabs>1?"s":""}.`,warnings});
     }catch(err){console.error(err);setParseMsg({err:true,text:"That file couldn’t be read as an .xlsx template."});}
     e.target.value="";
   };
@@ -1693,6 +1697,7 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,cBowlRe
               <button onClick={downloadTemplate} style={{background:"#fff",border:`1px solid ${T.blue}`,color:T.blue,borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>⬇ Download Excel template</button>
               <button onClick={()=>fMonth?upRef.current?.click():setParseMsg({err:true,text:"Pick the month first."})} style={{background:T.blue,border:"none",color:"#fff",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>⬆ Upload counts (.xlsx)</button>
               <input ref={upRef} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={onUpload} style={{display:"none"}}/>
+              <button onClick={()=>say("Coming in V2 — upload your POS monthly report and the counts fill themselves in")} style={{background:"transparent",border:`1px dashed ${T.border}`,color:T.muted,borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>⬆ Upload POS report · V2</button>
             </div>
             {parseMsg&&(
               <div style={{marginTop:10,fontSize:12,fontWeight:600,color:parseMsg.err?T.coral:T.teal,background:parseMsg.err?T.coralL:T.tealL,border:`1px solid ${(parseMsg.err?T.coral:T.teal)}33`,borderRadius:10,padding:"8px 12px",lineHeight:1.5}}>
