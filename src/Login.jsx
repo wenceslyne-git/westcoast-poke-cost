@@ -20,7 +20,7 @@ export default function Login({ T }) {
     setBusy(true);
     const { error } = await supabase.auth.signInWithOtp({
       email: clean,
-      options: { shouldCreateUser: true },
+      options: { shouldCreateUser: true, emailRedirectTo: window.location.origin },
     });
     setBusy(false);
     if (error) { setErr(error.message); return; }
@@ -63,15 +63,15 @@ export default function Login({ T }) {
 
         {stage === "email" && (
           <>
-            <div style={{ fontSize: 15, color: T.slate, marginBottom: 20, lineHeight: 1.6 }}>Owner access only.<br />Enter your email to receive a sign-in code.</div>
+            <div style={{ fontSize: 15, color: T.slate, marginBottom: 20, lineHeight: 1.6 }}>Owner access only.<br />Enter your email to receive a sign-in link.</div>
             <input style={input} type="email" placeholder="you@westcoastpoke.com" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && !busy && sendCode()} autoFocus />
-            <button style={btn(busy || !email.trim())} disabled={busy || !email.trim()} onClick={sendCode}>{busy ? "Sending code..." : "Send sign-in code"}</button>
+            <button style={btn(busy || !email.trim())} disabled={busy || !email.trim()} onClick={sendCode}>{busy ? "Sending link..." : "Send sign-in link"}</button>
           </>
         )}
 
         {stage === "code" && (
           <>
-            <div style={{ fontSize: 15, color: T.slate, marginBottom: 20, lineHeight: 1.6 }}>We emailed a 6-digit code to<br /><strong>{email}</strong></div>
+            <div style={{ fontSize: 15, color: T.slate, marginBottom: 20, lineHeight: 1.6 }}>We emailed a sign-in link to<br /><strong>{email}</strong><br /><span style={{ fontSize: 12, color: T.muted }}>Click the link in the email — it brings you straight back here, signed in. (If your email shows a 6-digit code instead, enter it below.)</span></div>
             <input style={{ ...input, letterSpacing: "8px", fontSize: 22, fontWeight: 700 }} inputMode="numeric" maxLength={6} placeholder="······" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ""))} onKeyDown={e => e.key === "Enter" && !busy && verifyCode()} autoFocus />
             <button style={btn(busy || code.length < 6)} disabled={busy || code.length < 6} onClick={verifyCode}>{busy ? "Verifying..." : "Verify & sign in"}</button>
             <button style={{ background: "none", border: "none", color: T.muted, fontSize: 13, cursor: "pointer", marginTop: 14 }} onClick={() => { setStage("email"); setCode(""); setErr(null); }}>← Use a different email</button>
