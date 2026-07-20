@@ -37,6 +37,9 @@ Explicitly deferred during development.
 ### 1. Floating AI chat bubble
 Global, collapsible chat accessible from every tab, so the user can ask about their data while scrolling any screen. Currently the "Ask a question about your data" chat lives inside the Insights tab only. Parked because it's a non-trivial lift: chat state must be lifted app-wide, plus mobile positioning and persistence work.
 
+### 1a. In-app AI support chat (Help V2)
+Replace the V1 header Help button (mailto to wenceslyne@elitelvlservices.com, shipped 20 Jul 2026) with an in-app AI help chat: Edge Function proxying the Claude API (key server-side), a system prompt describing app features, transcripts stored in Supabase, each finished conversation summarized with a needs-action flag, surfaced in an owner inbox on the dashboard.
+
 ### 2. Sub-recipe / "made from" costing  ⭐ highest-value
 Decompose prepared items (Crab Salad, Kimchi Cucumber, house sauces, etc.) into their raw components with quantities, so their cost is calculated from real ingredient prices instead of a static recipe estimate. This is what makes prepared-item costs truly accurate. Referenced by the "estimated cost" narrative already shown in the Ingredients tab, and by the price-check tickbox (prepared items are excluded from live checks precisely because they aren't bought raw).
 

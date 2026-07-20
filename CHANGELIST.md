@@ -1,6 +1,17 @@
 # Change list
 
+## 29. Reactive hover on header + regenerate buttons (approved via mockup + BUILT 2026-07-20, NOT committed)
+- Two new classes in the global style block: wpHovG (ghost/outline) — 2px lift, blueL fill, blue border+text, soft blue shadow; wpHovS (solid blue) — 2px lift, deepens to blueDark, stronger shadow. 0.16s ease, :not(:disabled), colours via --wpBlue/--wpBlueL/--wpBlueDark CSS vars set on the app root so dark mode follows the theme.
+- Applied to: Scan receipt (S), Help (G), Sign out (G), dark-mode toggle (G), unselected header location pills (G), "⟳ Refresh live prices" (S), "✦ Regenerate" insights button (S).
+
+## 28. Header: Help button (mailto) (approved + BUILT 2026-07-20, NOT committed)
+- "Help" pill button in the header, left of "Sign out", same style (border pill, ? icon, icon-only on mobile with "Email support" tooltip).
+- Opens mailto:wenceslyne@elitelvlservices.com with subject "Westcoast Poke Support Request" and a pre-filled body ("Question about:" + the logged-in user's email) so the sender is identifiable.
+- V2 (parked, see ROADMAP): in-app AI help chat via Edge Function + Claude API, with summarized transcripts, needs-action flags, and an owner inbox.
+
 ## 27. Target card: minimal fading gauge (approved + BUILT 2026-07-20, NOT committed)
+- Size fix (approved): dial capped at 210px tall (was 420 — ballooned in the equal-height row); still centres in taller views with breathing room.
+- Year-target grand celebration: stored celebrated_<year> flag REMOVED (user decision) — now replays on every below->above crossing in-session (saves, edits, target changes); never fires on plain page load.
 - Post-test fixes (approved): readout line restored under the header ("$YTD of $target · year to date · ahead/behind pace by $X"); gauge vertically centred AND scales with card height (flex + svg height 100%, max 420px) so Month/Quarter/Year explorer heights all look balanced; legend stays pinned at the bottom.
 - Item 21 tint softened to 75% opacity (blueL+BF) so the approved down-month fish (which swims BEHIND the narrative) shows through again — fish itself untouched.
 Replaces the item 22 dial. Final agreed design:
