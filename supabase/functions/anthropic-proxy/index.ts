@@ -5,8 +5,8 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const OWNER_EMAILS = [
   "wenceslyne@elitelvlservices.com",
-  "sbgomez604@gmail.com",
-  "r_gomez_02@yahoo.com",
+  "sheila@westcoastpoke.com",
+  "richard@westcoastpoke.com",
 ];
 
 const CORS = {

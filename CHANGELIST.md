@@ -1,5 +1,61 @@
 # Change list
 
+## 27. Target card: minimal fading gauge (approved + BUILT 2026-07-20, NOT committed)
+- Post-test fixes (approved): readout line restored under the header ("$YTD of $target · year to date · ahead/behind pace by $X"); gauge vertically centred AND scales with card height (flex + svg height 100%, max 420px) so Month/Quarter/Year explorer heights all look balanced; legend stays pinned at the bottom.
+- Item 21 tint softened to 75% opacity (blueL+BF) so the approved down-month fish (which swims BEHIND the narrative) shows through again — fish itself untouched.
+Replaces the item 22 dial. Final agreed design:
+- One continuous half-donut, radius widened to span the card (~98 in a 260-wide viewBox), stroke 30, rounded ends; single colour (the card's pace tint colour) fading Excel-style from solid at $0 to near-transparent at the target end (seamless linear gradient, no segments, no lines).
+- Green needle #5CB85F: needle + hub drawn as ONE flat shape with a single shared opacity (~0.85) — even colour throughout, no darker hub overlap. Points at YTD share of target.
+- Yellow pace dot #F5B93E, diameter = arc thickness (solid fill), white ring OUTSIDE it; sits on the arc at today's even-pace position.
+- Centre: ONLY the big % (sales so far as % of target). All other text removed from the dial ($0/$target labels, to-go line, behind-pace row all gone).
+- Legend row below a divider: "● Green needle — Sales so far | ● Yellow dot — Where you should be today".
+- Hover tooltips (native SVG <title>): centre % "Sales so far: $YTD = N% of your <year> target" · needle "Sales so far — $YTD year to date" · arc "Your <year> target: $T · $X still to go" · dot "Where you should be today at even pace: $P — you're $X behind/ahead".
+- Header stays "2026 target" + Edit target only. Card pace tint (item 22) unchanged. Past 100%: needle pins at full, dot hidden, centre may read "×N.N".
+
+
+## 26. Data health donut (approved via mockups + BUILT 2026-07-20, NOT committed)
+- HealthRing replaced: 3 concentric floating arcs (no tracks, no pad, no card border), stroke 11, white gaps, 128px desktop / 104px mobile, sized to match the legend height.
+- Rings (vivid off-brand colours): outer red #FF3B30 = month entered (sales 50% + counts 50%) · mid green #34C759 = cost freshness (proportional, full at 80%) · inner blue #007AFF = market samples run.
+- Legend right of the donut: "DATA HEALTH · score" header, one dot-row per ring with its status (checkmark / sales-counts split / %/due), existing hint line below. Scoring logic unchanged; supersedes the item 25 single-ring recolour.
+
+## 25. Small polish round (approved + BUILT 2026-07-20, NOT committed)
+- Location comparison speaks plain English: subtitle "How much of every bowl dollar goes to ingredients · target 30¢"; per-location line "N¢ of every $1 goes to ingredients — X¢ over target / on target ✓" (replaces "Δ +Npts vs target"); over 100% shows a data-sanity flag "Ingredients cost more than these bowls earned — check counts vs sales"; insight line reworded without pts/COGS jargon.
+- Data health ring: vivid off-brand traffic scale (#FF3B30 red <50 · #FF9500 orange <80 · #34C759 green 80+), number matches ring colour, stroke thickened 6->7. Scoring logic unchanged.
+- Sales header: "+ Enter monthly sales" (primary) now LEFT of "Edit month".
+
+## 24. Global: hover lift on all boxes (approved + BUILT 2026-07-20, NOT committed)
+- Every card/tile/tinted box (dashboard stats, quick wins, action cards, Insights headline/ask/focus/insight cards, Sales explorer + target + charts, supplier/menu cards) gets a hover lift: 3px rise + soft shadow, 0.18s ease. Pure CSS class wpLift, no layout shift.
+
+## 23. Sales: month explorer + target card side by side (approved + BUILT 2026-07-20, NOT committed)
+- Month explorer (Month/Quarter/Year card) LEFT · 2026 target card RIGHT, in a repeat(2, minmax(0,1fr)) desktop grid, equal height, splitting at the same line as the Bowl COGS / Top 3 sellers cards. Stacked on mobile.
+- Title line ("Your numbers, straight up" + narrative) untouched above.
+- Menu cost analysis card stays full width in its current position between this row and the charts row — nothing removed or reordered around the pair.
+- Explorer slims to fit half width: toggle + month nav + food-cost chip + CSV chip on one wrapping header line; 3 compact stat tiles ("Food cost"/"Gross profit" labels, "Bowl" dropped); location rows unchanged.
+- Target card uses the item 22 compact/tinted design.
+
+## 22. Sales: annual target card rework (approved + BUILT 2026-07-20, NOT committed)
+- Compact layout: title + trophy, big YTD figure, "of $target · % · ahead/behind pace by $X" readout and Edit target button all on one wrapping row; bar + two small labels below. ~half current height.
+- Chart AS CURRENTLY BUILT (intermediate state): single-colour arc fading from solid at the needle position (gradient), dark tapered needle, black even-pace tick, % + "$X to go" in the bowl, $0/$target at the ends, behind/ahead-of-pace bottom row. SUPERSEDED by item 27's approved design (not yet built).
+- Performance tint on the whole card: tealL ahead of pace · amberL behind · coralL when >20% behind pace; bar track white on tint; text in the matching dark ramp.
+
+## 21. Sales narrative: resting tint after animation (approved + BUILT 2026-07-20, NOT committed)
+- Sequence on load / narrative change: accent bar draws in → shimmer sweeps twice (item 17 behaviour unchanged) → then a borderless blueL tint fades in behind the narrative and stays permanently.
+- Tint block: blueL background, no outline border, left accent bar kept, rounded right corners, text in the darker blue (blueDark).
+- Down-month fish keeps swimming behind it, unaffected.
+
+## 20. Insights page: paired + tinted top cards (approved + BUILT 2026-07-20, NOT committed)
+- "Ask a question about your data" and "This month's focus" sit side by side on desktop in a repeat(2, minmax(0,1fr)) grid (stacked on mobile), equal height, splitting at the same point as the insight cards grid below.
+- Ask a question card tinted blueL with faint blue border; headings in darker blues; input/chat bubbles stay on white so they read against the tint.
+- Focus card tinted tealL with faint teal border (keeps its 4px teal accent bar); text in darker teals; ADVISORY tag on white.
+- Content unchanged in both cards.
+- Insight list defaults to List view instead of Cards (toggle unchanged).
+
+## 19. Dashboard layout + accent polish (approved + BUILT 2026-07-20, NOT committed)
+- Swap: "What to push" moves to the LEFT cell, "Location comparison" to the right (desktop grid; mobile stacking order follows).
+- Action cards (bottom "ACTION" row): tinted background in each action's own light color (blueL scan / amberL pricing / coralL renegotiate), borderless (border removed after visual test); content unchanged.
+- Top 4 "This month" stat cards: borderless flat tints (accent borders tried, then removed after visual test).
+- Location comparison card: border in sales blue. Buy it today card: border in food-cost amber. (Best price blue + What to push teal already have theirs.)
+
 ## 18. AI refresh moves into the Insights page (approved + BUILT 2026-07-20, NOT committed)
 - Also fixed in this pass: dark-mode nav tooltips were blank (white-on-white — tooltip text was hardcoded #fff on T.navy, which flips near-white in dark mode; now uses T.bg).
 - Remove the blue AI-refresh circle from the header entirely (original accidental-press culprit; redundant with Insights' Regenerate).

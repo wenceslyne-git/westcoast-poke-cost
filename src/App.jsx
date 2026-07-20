@@ -538,6 +538,7 @@ export default function App(){
     return (priced.length-staleIngredients.length)/priced.length;
   })();
   const healthScore=Math.round((salesEnteredNow?25:0)+(countsNow?25:0)+(Math.min(freshFrac/0.8,1)*25)+(samplesOkay?25:0));
+  const healthParts={sales:salesEnteredNow,counts:countsNow,fresh:Math.min(freshFrac/0.8,1),samples:samplesOkay};
   const healthHint=!salesEnteredNow?`Enter ${monthKeyNow}'s sales to lift the score`
     :!countsNow?`Upload ${monthKeyNow}'s bowl counts to lift the score`
     :staleIngredients.length?`No cost recorded for ${staleIngredients.slice(0,2).map(s=>s.n).join(" or ")} in ${staleIngredients[0].days} days — scan a recent invoice`
@@ -777,7 +778,7 @@ export default function App(){
         )}
         <div style={{flex:1,minWidth:0,height:"100%",overflowY:"auto"}}>
       <div style={{padding:isMobile?"16px":"28px 32px",maxWidth:MAXW,margin:"0 auto"}}>
-        {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,ytd,yearTarget,saveYearTarget,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market,searchTerms,volatileIngredients,trackIngredient,healthScore,healthHint,onRefreshLive:()=>armPaid({label:"Live price refresh",secs:10,lastAt:(()=>{const all=Object.values(market||{}).flat().map(r=>r.at).sort();return all.pop()||null;})(),fn:refreshLivePrices}),liveBusy:chkAll}}/>}
+        {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,ytd,yearTarget,saveYearTarget,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market,searchTerms,volatileIngredients,trackIngredient,healthScore,healthHint,healthParts,onRefreshLive:()=>armPaid({label:"Live price refresh",secs:10,lastAt:(()=>{const all=Object.values(market||{}).flat().map(r=>r.at).sort();return all.pop()||null;})(),fn:refreshLivePrices}),liveBusy:chkAll}}/>}
         {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedPrice,priceFor,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,market,searchTerms,saveSearchTerm}}/>}
         {tab==="suppliers"&&<Suppliers {...{T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,reload,armPaid}}/>}
         {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,saveYearTarget,fishActive:celebrate?.type==="fish",cRev,cCOGS,cBowlRev,cOtherRev,bowlUnits,bowlUnitsTotal,sizeAgg,totalBowls,costSz,isBowl,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,bFCP,bMargin,months,say,onSaveSales:async(month,l1,l2,mix)=>{
@@ -820,7 +821,7 @@ export default function App(){
         </div>
       </div>
 
-      <style>{"@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}} @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}} @keyframes wpRain{0%{transform:translateY(-20px) rotate(0deg);opacity:1}85%{opacity:1}100%{transform:translateY(105vh) rotate(480deg);opacity:0}} @keyframes wpSpark{0%{transform:scale(0.4) translateY(6px);opacity:0}35%{transform:scale(1.25) translateY(-6px);opacity:1}100%{transform:scale(0.9) translateY(-22px);opacity:0}} @keyframes wpPop{0%{transform:scale(0.4);opacity:0}55%{transform:scale(1.25);opacity:1}100%{transform:scale(1);opacity:1}} @keyframes wpFish{0%{transform:translate(-80px,78vh) rotate(-38deg);opacity:0}10%{opacity:1}50%{transform:translate(45vw,16vh) rotate(6deg)}90%{opacity:1}100%{transform:translate(95vw,80vh) rotate(50deg);opacity:0}} @keyframes wpSplash{0%,80%{transform:translate(0,0) scale(0);opacity:0}90%{transform:translate(var(--dx),var(--dy)) scale(1);opacity:0.9}100%{transform:translate(var(--dx),calc(var(--dy) + 24px)) scale(0.7);opacity:0}} @keyframes wpBanner{0%{transform:translate(-50%,-50%) scale(0.7);opacity:0}70%{transform:translate(-50%,-50%) scale(1.05);opacity:1}100%{transform:translate(-50%,-50%) scale(1);opacity:1}} @keyframes wpWeave{0%{left:-50px;top:-8px;transform:rotate(-4deg);opacity:0}8%{opacity:1}25%{top:-18px;transform:rotate(7deg)}45%{top:8px;transform:rotate(-8deg)}65%{top:-14px;transform:rotate(6deg)}85%{top:0;transform:rotate(-5deg);opacity:1}100%{left:101%;top:-8px;transform:rotate(0deg);opacity:0}} @keyframes wpBub{0%{transform:translateY(0) scale(0.5);opacity:0}30%{opacity:0.6}100%{transform:translateY(-14px) scale(1);opacity:0}} @keyframes wpBarIn{0%{transform:scaleY(0)}100%{transform:scaleY(1)}} @keyframes wpSlideIn{0%{opacity:0;transform:translateY(6px)}100%{opacity:1;transform:translateY(0)}} @keyframes wpSheen{0%{transform:translateX(-110%)}100%{transform:translateX(240%)}} *{box-sizing:border-box} button:active:not(:disabled){transform:scale(0.97)}"}</style>
+      <style>{"@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}} @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}} @keyframes wpRain{0%{transform:translateY(-20px) rotate(0deg);opacity:1}85%{opacity:1}100%{transform:translateY(105vh) rotate(480deg);opacity:0}} @keyframes wpSpark{0%{transform:scale(0.4) translateY(6px);opacity:0}35%{transform:scale(1.25) translateY(-6px);opacity:1}100%{transform:scale(0.9) translateY(-22px);opacity:0}} @keyframes wpPop{0%{transform:scale(0.4);opacity:0}55%{transform:scale(1.25);opacity:1}100%{transform:scale(1);opacity:1}} @keyframes wpFish{0%{transform:translate(-80px,78vh) rotate(-38deg);opacity:0}10%{opacity:1}50%{transform:translate(45vw,16vh) rotate(6deg)}90%{opacity:1}100%{transform:translate(95vw,80vh) rotate(50deg);opacity:0}} @keyframes wpSplash{0%,80%{transform:translate(0,0) scale(0);opacity:0}90%{transform:translate(var(--dx),var(--dy)) scale(1);opacity:0.9}100%{transform:translate(var(--dx),calc(var(--dy) + 24px)) scale(0.7);opacity:0}} @keyframes wpBanner{0%{transform:translate(-50%,-50%) scale(0.7);opacity:0}70%{transform:translate(-50%,-50%) scale(1.05);opacity:1}100%{transform:translate(-50%,-50%) scale(1);opacity:1}} @keyframes wpWeave{0%{left:-50px;top:-8px;transform:rotate(-4deg);opacity:0}8%{opacity:1}25%{top:-18px;transform:rotate(7deg)}45%{top:8px;transform:rotate(-8deg)}65%{top:-14px;transform:rotate(6deg)}85%{top:0;transform:rotate(-5deg);opacity:1}100%{left:101%;top:-8px;transform:rotate(0deg);opacity:0}} @keyframes wpBub{0%{transform:translateY(0) scale(0.5);opacity:0}30%{opacity:0.6}100%{transform:translateY(-14px) scale(1);opacity:0}} @keyframes wpBarIn{0%{transform:scaleY(0)}100%{transform:scaleY(1)}} @keyframes wpSlideIn{0%{opacity:0;transform:translateY(6px)}100%{opacity:1;transform:translateY(0)}} @keyframes wpSheen{0%{transform:translateX(-110%)}100%{transform:translateX(240%)}} @keyframes wpTintIn{0%{background-color:transparent}100%{background-color:var(--wpTint,transparent)}} .wpLift{transition:transform 0.18s ease, box-shadow 0.18s ease} .wpLift:hover{transform:translateY(-3px);box-shadow:0 6px 18px rgba(0,0,0,0.12)} *{box-sizing:border-box} button:active:not(:disabled){transform:scale(0.97)}"}</style>
     </div>
   );
 }
@@ -867,7 +868,7 @@ function SecurityTab({T,isMobile,card,say,session}){
   return(
     <div>
       <TabHead T={T} isMobile={isMobile} pre="Access & " em="security" color={T.blue} sub="Who can use the platform, and who's signed in right now" style={{marginBottom:16}}/>
-      <div style={{...card,padding:isMobile?16:20,marginBottom:16}}>
+      <div className="wpLift" style={{...card,padding:isMobile?16:20,marginBottom:16}}>
         <div style={{fontSize:15,fontWeight:800,marginBottom:6}}>Who can sign in</div>
         <div style={{fontSize:12.5,color:T.muted,marginBottom:14,lineHeight:1.6}}>Only these {OWNER_EMAILS.length} emails can access the platform (enforced at login, in the app, and on the AI proxy). Changing the list is a code change.</div>
         {OWNER_EMAILS.map((e,i)=>(
@@ -879,7 +880,7 @@ function SecurityTab({T,isMobile,card,say,session}){
           </div>
         ))}
       </div>
-      <div style={{...card,padding:isMobile?16:20}}>
+      <div className="wpLift" style={{...card,padding:isMobile?16:20}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
           <span style={{fontSize:15,fontWeight:800}}>Active sessions</span>
           <button onClick={load} style={{marginLeft:"auto",background:"none",border:`1px solid ${T.border}`,borderRadius:14,color:T.muted,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>⟳ Refresh</button>
@@ -949,20 +950,32 @@ function TabHead({T,isMobile,pre,em,color,sub,style}){
 }
 
 // ─── HEALTH RING (item 15) — month data-completeness score ───────────────────
-function HealthRing({T,score,hint,isMobile}){
-  const col=score<50?T.coral:score<80?T.amber:T.teal;
-  const R=26,C=2*Math.PI*R;
+function HealthRing({T,score,hint,parts={},isMobile}){
+  // Item 26: floating donut — 3 concentric arcs, deliberately off-brand vivid colours, no tracks/borders.
+  // Outer = month entered (sales 50% + counts 50%) · mid = cost freshness · inner = market samples.
+  const rings=[
+    {r:43,col:"#FF3B30",frac:(parts.sales?0.5:0)+(parts.counts?0.5:0),lb:"Month entered",st:parts.sales&&parts.counts?"✓":`sales ${parts.sales?"✓":"✗"} · counts ${parts.counts?"✓":"✗"}`},
+    {r:28,col:"#34C759",frac:parts.fresh||0,lb:"Costs fresh",st:parts.fresh>=1?"✓":`${Math.round((parts.fresh||0)*100)}%`},
+    {r:13,col:"#007AFF",frac:parts.samples?1:0,lb:"Samples run",st:parts.samples?"✓":"due"},
+  ];
+  const sz=isMobile?104:128;
   return(
-    <div style={{display:"flex",alignItems:"center",gap:12,maxWidth:isMobile?"100%":300}}>
-      <svg width="64" height="64" viewBox="0 0 64 64" style={{flexShrink:0}}>
-        <circle cx="32" cy="32" r={R} fill="none" stroke={T.border} strokeWidth="6"/>
-        <circle cx="32" cy="32" r={R} fill="none" stroke={col} strokeWidth="6" strokeLinecap="round"
-          strokeDasharray={`${C*score/100} ${C}`} transform="rotate(-90 32 32)"/>
-        <text x="32" y="37" textAnchor="middle" fontSize="16" fontWeight="800" fill={col}>{score}</text>
+    <div style={{display:"flex",alignItems:"center",gap:isMobile?14:18,maxWidth:isMobile?"100%":360}}>
+      <svg viewBox="0 0 100 100" style={{width:sz,height:sz,flexShrink:0}} role="img" aria-label={`Data health ${score} of 100`}>
+        {rings.map(g=>{
+          const C=2*Math.PI*g.r;
+          return g.frac>0.005&&<circle key={g.lb} cx="50" cy="50" r={g.r} fill="none" stroke={g.col} strokeWidth="11" strokeLinecap="round" strokeDasharray={`${Math.min(g.frac,1)*C} ${C}`} transform="rotate(-90 50 50)"/>;
+        })}
       </svg>
-      <div>
-        <div style={{fontSize:11,fontWeight:800,color:T.slate,textTransform:"uppercase",letterSpacing:"0.8px"}}>Data health</div>
-        <div style={{fontSize:11.5,color:T.muted,lineHeight:1.45}}>{hint}</div>
+      <div style={{display:"flex",flexDirection:"column",justifyContent:"center",lineHeight:1.85}}>
+        <div style={{fontSize:11,fontWeight:800,color:T.slate,textTransform:"uppercase",letterSpacing:"0.8px"}}>Data health · {score}</div>
+        {rings.map(g=>(
+          <div key={g.lb} style={{fontSize:11.5}}>
+            <span style={{display:"inline-block",width:9,height:9,borderRadius:"50%",background:g.col,marginRight:6}}/>
+            <span style={{color:T.navy,fontWeight:600}}>{g.lb}</span> <span style={{color:T.muted}}>{g.st}</span>
+          </div>
+        ))}
+        <div style={{fontSize:11,color:T.muted,marginTop:2,lineHeight:1.45}}>{hint}</div>
       </div>
     </div>
   );
@@ -979,7 +992,7 @@ function Clamp({T,children}){
   );
 }
 
-function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,ytd,yearTarget,saveYearTarget,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market={},searchTerms={},volatileIngredients=[],trackIngredient,healthScore=0,healthHint="",onRefreshLive,liveBusy}){
+function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,ytd,yearTarget,saveYearTarget,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market={},searchTerms={},volatileIngredients=[],trackIngredient,healthScore=0,healthHint="",healthParts={},onRefreshLive,liveBusy}){
   const h=headline;
   const [buyIng,setBuyIng]=useState("");
   const [buyLoc,setBuyLoc]=useState("loc1");
@@ -1004,7 +1017,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
             <span style={{fontSize:12,color:T.muted}}>Live · synced to database</span>
           </div>
         </div>
-        <HealthRing T={T} score={healthScore} hint={healthHint} isMobile={isMobile}/>
+        <HealthRing T={T} score={healthScore} hint={healthHint} parts={healthParts} isMobile={isMobile}/>
       </div>
 
       {/* Current-month strip — the annual target and year view live on the Sales tab */}
@@ -1022,7 +1035,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
               {lb:"Bowl Gross Profit",v:fmtK2(gp),split:split(`${data.locations.loc1} ${fmtK2(cBowlRev(latMon,"loc1")-cCOGS(latMon,"loc1"))} · ${data.locations.loc2} ${fmtK2(cBowlRev(latMon,"loc2")-cCOGS(latMon,"loc2"))}`),col:T.teal,bg:T.tealL},
               {lb:"Other Revenue",v:fmtK2(otherRev),split:split(`${data.locations.loc1} ${fmtK2(lother("loc1"))} · ${data.locations.loc2} ${fmtK2(lother("loc2"))}`),col:T.blue,bg:T.blueL},
             ];})().map((k,i)=>(
-              <div key={i} title={k.split||undefined} style={{background:k.bg,border:`1px solid ${T.border}`,borderRadius:isMobile?12:isDesktop?10:16,padding:isMobile?"14px 16px":isDesktop?"9px 14px":"18px 22px"}}>
+              <div key={i} title={k.split||undefined} className="wpLift" style={{background:k.bg,border:"none",borderRadius:isMobile?12:isDesktop?10:16,padding:isMobile?"14px 16px":isDesktop?"9px 14px":"18px 22px"}}>
                 <div style={{fontSize:isDesktop?11:10,color:T.inkL,textTransform:"uppercase",letterSpacing:"1px",fontWeight:700,marginBottom:isDesktop?3:8}}>{k.lb}</div>
                 <div style={{fontSize:isMobile?22:isDesktop?18:30,fontWeight:900,color:k.col,letterSpacing:"-0.5px",lineHeight:1}}>{k.v}{k.extra&&<span style={{fontSize:isDesktop?12:13,fontWeight:600,color:T.inkL,marginLeft:6}}>{k.extra}</span>}</div>
                 {k.split&&!isDesktop&&<div style={{fontSize:isMobile?11:12,color:T.muted,marginTop:6,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{k.split}</div>}
@@ -1036,12 +1049,12 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
       {/* Location comparison (wider) + What to push side by side on desktop; stacked on mobile */}
       <div style={{display:"grid",gridTemplateColumns:isDesktop&&loc==="all"?"repeat(2,minmax(0,1fr))":"minmax(0,1fr)",gap:isMobile?12:16,marginBottom:isMobile?12:16,alignItems:"stretch"}}>
         {loc==="all"&&latMon&&(
-          <div style={{...card,display:"flex",flexDirection:"column"}}>
+          <div className="wpLift" style={{...card,border:`1.5px solid ${T.blue}66`,display:"flex",flexDirection:"column",order:1}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
               <div style={{fontSize:isMobile?15:17,fontWeight:700}}>Location comparison</div>
               <div style={{fontSize:12,color:T.muted}}>{latMon}</div>
             </div>
-            <div style={{fontSize:12,color:T.muted,marginBottom:14}}>Bowl food cost as share of bowl sales · target 30%</div>
+            <div style={{fontSize:12,color:T.muted,marginBottom:14}}>How much of every bowl dollar goes to ingredients · target 30¢</div>
             <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"space-evenly"}}>
             {["loc1","loc2"].map((l,i)=>{
               const lr=cRev(latMon,l),lbr=cBowlRev(latMon,l),lc=cCOGS(latMon,l),lp=lbr?(lc/lbr)*100:0,delta=lp-30;
@@ -1065,7 +1078,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
                   </div>
                   <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
                     <span style={{fontSize:11.5,color:T.muted,fontWeight:600}}>{rchg===null?`no ${pKey.split(" ")[0]} data to compare`:`vs ${pKey.split(" ")[0]}: ${rchg>=0?"+":""}${rchg.toFixed(0)}% revenue`}</span>
-                    <span style={{fontSize:11.5,color:delta>0?T.coral:T.teal,fontWeight:700}}>Δ {delta>0?"+":""}{delta.toFixed(1)}pts vs target</span>
+                    <span style={{fontSize:11.5,color:delta>0?T.coral:T.teal,fontWeight:700}}>{lp>100?"Ingredients cost more than these bowls earned — check counts vs sales":lp===0?"no bowl data yet":`${Math.round(lp)}¢ of every $1 goes to ingredients — ${delta>0?`${Math.round(delta)}¢ over target`:"on target ✓"}`}</span>
                   </div>
                   {i===0&&<div style={{borderTop:`1px solid ${T.border}`,margin:"14px 0 0"}}/>}
                 </div>
@@ -1077,14 +1090,14 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
               const l2p=cRev(latMon,"loc2")?(cCOGS(latMon,"loc2")/cRev(latMon,"loc2")*100):0;
               const diff=Math.abs(l1p-l2p);
               const hotter=l1p>l2p?data.locations.loc1:data.locations.loc2;
-              return <div style={{background:T.bg,borderRadius:10,padding:"10px 14px",marginTop:"auto",fontSize:12.5,color:T.slate,lineHeight:1.6}}><strong style={{color:T.navy}}>Insight</strong> · {diff<0.5?"Both locations are running level on COGS — portioning looks consistent.":`${hotter} is running ${diff.toFixed(1)}pts hotter on COGS. Check portion consistency across locations.`}</div>;
+              return <div style={{background:T.bg,borderRadius:10,padding:"10px 14px",marginTop:"auto",fontSize:12.5,color:T.slate,lineHeight:1.6}}><strong style={{color:T.navy}}>Insight</strong> · {diff<0.5?"Both locations spend about the same on ingredients per bowl dollar — portioning looks consistent.":`${hotter} spends more on ingredients per bowl dollar than the other location. Compare portion sizes.`}</div>;
             })()}
           </div>
         )}
 
         {/* Row 2: Best price today + Buy it today, equal width and height */}
         <div style={{gridColumn:"1 / -1",order:2,display:"grid",gridTemplateColumns:isDesktop?"repeat(2,minmax(0,1fr))":"minmax(0,1fr)",gap:isMobile?12:16,alignItems:"stretch"}}>
-        <div style={{...card,border:`1.5px solid ${T.blue}66`,height:"100%"}}>
+        <div className="wpLift" style={{...card,border:`1.5px solid ${T.blue}66`,height:"100%"}}>
           <div style={{fontSize:9.5,fontWeight:800,color:T.blue,background:T.blueL,border:`1px solid ${T.blue}44`,borderRadius:20,padding:"3px 10px",display:"inline-block",letterSpacing:"0.8px",marginBottom:8}}>⚡ QUICK WIN</div>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2,flexWrap:"wrap"}}>
             <div style={{fontSize:isMobile?18:21,fontWeight:800,letterSpacing:"-0.3px"}}>💰 Best price today</div>
@@ -1131,7 +1144,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
           })()}
         </div>
 
-        <div style={{...card,display:"flex",flexDirection:"column",height:"100%"}}>
+        <div className="wpLift" style={{...card,border:`1.5px solid ${T.amber}66`,display:"flex",flexDirection:"column",height:"100%"}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
             <div style={{fontSize:isMobile?15:17,fontWeight:800}}>🛒 Buy it today</div>
             <Tag c={T.teal} bg={T.tealL} sm>FREE SEARCH</Tag>
@@ -1152,7 +1165,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
         </div>
         </div>
 
-        <div style={{...card,border:`1.5px solid ${T.teal}66`}}>
+        <div className="wpLift" style={{...card,border:`1.5px solid ${T.teal}66`}}>
           <div style={{fontSize:9.5,fontWeight:800,color:T.teal,background:T.tealL,border:`1px solid ${T.teal}44`,borderRadius:20,padding:"3px 10px",display:"inline-block",letterSpacing:"0.8px",marginBottom:8}}>⚡ QUICK WIN</div>
           <div style={{fontSize:isMobile?18:21,fontWeight:800,letterSpacing:"-0.3px",marginBottom:2}}>🔥 What to push</div>
           <div style={{fontSize:13,fontWeight:600,color:T.slate,marginBottom:6}}>Today's highest-margin bowl</div>
@@ -1180,7 +1193,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
       {volatileIngredients.length>0&&(
         <div style={{marginBottom:isMobile?12:16}}>
           {volatileIngredients.map(v=>(
-            <div key={v.n} style={{...card,borderLeft:`4px solid ${T.amber}`,borderRadius:isMobile?12:16,marginBottom:8,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+            <div key={v.n} className="wpLift" style={{...card,borderLeft:`4px solid ${T.amber}`,borderRadius:isMobile?12:16,marginBottom:8,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
               <div style={{flex:1,minWidth:200}}>
                 <div style={{fontSize:14,fontWeight:800,marginBottom:2}}>📈 {v.n} price is volatile</div>
                 <div style={{fontSize:12.5,color:T.slate,lineHeight:1.5}}>Your paid price varied <strong>{v.swing.toFixed(0)}%</strong> over your last {v.count} purchases — worth watching the market. Recommend enabling market tracking.</div>
@@ -1192,14 +1205,16 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
       )}
 
       <div style={{display:"grid",gridTemplateColumns:isDesktop?`repeat(${actions.length},minmax(0,1fr))`:"minmax(0,1fr)",gap:isMobile?10:14}}>
-        {actions.map((a,i)=>(
-          <div key={i} style={{...card}}>
+        {actions.map((a,i)=>{
+          const tint=a.color===T.blue?T.blueL:a.color===T.coral?T.coralL:T.amberL;
+          return(
+          <div key={i} className="wpLift" style={{...card,background:tint,border:"none"}}>
             <div style={{fontSize:10,color:a.color,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:800,marginBottom:10}}>{a.icon} ACTION</div>
             <div style={{fontSize:isMobile?15:18,fontWeight:800,marginBottom:8,lineHeight:1.3}}>{a.title}</div>
             <div style={{fontSize:isMobile?12:14,color:T.slate,lineHeight:1.6,marginBottom:16}}>{a.body}</div>
             <button onClick={a.fn} style={{background:a.color,color:"#fff",border:"none",borderRadius:20,padding:"8px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>{a.cta} →</button>
           </div>
-        ))}
+        );})}
       </div>
     </div>
   );
@@ -1328,7 +1343,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
       </div>
 
       {showAdd&&(
-        <div ref={formRef} style={{...card,marginBottom:14,borderColor:T.blue}}>
+        <div ref={formRef} className="wpLift" style={{...card,marginBottom:14,borderColor:T.blue}}>
           <div style={{fontSize:15,fontWeight:700,marginBottom:12}}>Add a price manually</div>
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"2fr 1fr 1fr 2fr 1.4fr auto",gap:8,alignItems:"end"}}>
             <div><div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>INGREDIENT</div><input list="ing-list" value={mIng} onChange={e=>setMIng(e.target.value)} placeholder="e.g. Ahi Tuna" style={inp}/><datalist id="ing-list">{[...new Set([...CATALOG.map(c=>c.name),...Object.keys(data.ingredients)])].sort((a,b)=>a.localeCompare(b)).map(i=><option key={i} value={i}/>)}</datalist></div>
@@ -1342,7 +1357,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
       )}
 
       {showNewIng&&(
-        <div style={{...card,marginBottom:14,borderColor:T.teal}}>
+        <div className="wpLift" style={{...card,marginBottom:14,borderColor:T.teal}}>
           <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>Add an ingredient</div>
           <div style={{fontSize:12,color:T.muted,marginBottom:12,lineHeight:1.6}}>Add a raw ingredient you buy (e.g. Crab, Lettuce) so receipts can price it and it can be included in live checks. A price is optional — add it now or later. Raw items are price-checkable by default; prepared items aren't.</div>
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"2fr 1.4fr 1fr 1fr 2fr auto",gap:8,alignItems:"end"}}>
@@ -1369,7 +1384,7 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
               return(
                 <div key={cat} style={{marginBottom:14}}>
                   <div style={{fontSize:11,color:T.muted,fontWeight:800,textTransform:"uppercase",letterSpacing:"1px",margin:"0 0 6px 2px"}}>{cat} · {rows.length}</div>
-                  <div style={{...card,padding:0,overflow:"hidden"}}>
+                  <div className="wpLift" style={{...card,padding:0,overflow:"hidden"}}>
                     {rows.map((name,i)=>{
                       const entries=data.ingredients[name],has=entries&&entries.length,meta=catByName[name],last=i===rows.length-1;
                       if(has){
@@ -1646,7 +1661,7 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
       <p style={{margin:"0 0 16px",fontSize:isMobile?12:13,color:T.muted}}>Spend figures build from receipts scanned with quantities · tap a supplier for detail and line items</p>
 
       {showAdd&&(
-        <div style={{...card,marginBottom:14,borderColor:T.blue}}>
+        <div className="wpLift" style={{...card,marginBottom:14,borderColor:T.blue}}>
           <div style={{fontSize:15,fontWeight:700,marginBottom:12}}>Add a supplier</div>
           {catalog.length>0&&(
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,flexWrap:"wrap"}}>
@@ -1673,7 +1688,7 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
         </div>
       )}
 
-      <div style={{...card,marginBottom:14}}>
+      <div className="wpLift" style={{...card,marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:dResults?12:0}}>
           <div><div style={{fontSize:14,fontWeight:700}}>Find new suppliers</div>{catalog.length>0&&<div style={{fontSize:11,color:T.muted,marginTop:2}}>{catalog.length} supplier{catalog.length!==1?"s":""} already discovered — check the list before spending a new search</div>}</div>
           <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
@@ -1708,14 +1723,14 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
         )}
       </div>
 
-      <div style={{...card,marginBottom:14}}>
+      <div className="wpLift" style={{...card,marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           <div style={{fontSize:14,fontWeight:700}}>{"\u2605"} Preferred suppliers <span style={{fontSize:12,color:T.muted,fontWeight:400}}>({Object.values(data.suppliers).filter(sp=>sp.preferred).length})</span></div>
         </div>
         <div style={{fontSize:11,color:T.muted,marginTop:6}}>Star the suppliers you actually buy from. The table below shows the actual prices you've paid them, from receipts. Live market prices are on the dashboard's "Best price today", which sources only from your preferred suppliers.</div>
       </div>
 
-      <div style={{...card,padding:0,overflow:"hidden"}}>
+      <div className="wpLift" style={{...card,padding:0,overflow:"hidden"}}>
         <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr auto auto":"2fr 1fr 1fr 1fr 1fr",gap:8,padding:"10px 16px",background:T.bg,fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px"}}>
           <div>Supplier</div>
           {!isMobile&&<div>Type</div>}
@@ -2042,8 +2057,8 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,flexWrap:"wrap",gap:10}}>
         <TabHead T={T} isMobile={isMobile} pre="Your numbers, " em="straight up." color={T.blue} sub="Sales"/>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {savedMonths.length>0&&<button onClick={()=>openEdit(savedMonths[0])} style={{background:"transparent",color:T.slate,border:`1px solid ${T.border}`,borderRadius:20,padding:"9px 16px",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>✎ Edit month</button>}
           <button onClick={()=>setShowForm(v=>!v)} style={{background:showForm?"transparent":T.blue,color:showForm?T.muted:"#fff",border:showForm?`1px solid ${T.border}`:"none",borderRadius:20,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>{showForm?"Cancel":"+ Enter monthly sales"}</button>
+          {savedMonths.length>0&&<button onClick={()=>openEdit(savedMonths[0])} style={{background:"transparent",color:T.slate,border:`1px solid ${T.border}`,borderRadius:20,padding:"9px 16px",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>✎ Edit month</button>}
         </div>
       </div>
       {/* Item 14b: rules-based narrative — always cites a real number, honest on down months */}
@@ -2086,55 +2101,10 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
               </>
             )}
             <span style={{width:3.5,borderRadius:2,background:T.blue,transformOrigin:"top",animation:"wpBarIn 0.45s ease-out both",flexShrink:0,position:"relative",zIndex:1}}/>
-            <span style={{position:"relative",zIndex:1,overflow:"hidden",borderRadius:6,padding:"2px 6px 2px 2px",fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6,animation:"wpSlideIn 0.5s 0.1s ease-out both"}}>
+            <span style={{"--wpTint":`${T.blueL}BF`,position:"relative",zIndex:1,overflow:"hidden",borderRadius:"0 8px 8px 0",padding:"6px 12px 6px 8px",fontSize:isMobile?13:14,color:T.blueDark,lineHeight:1.6,animation:"wpSlideIn 0.5s 0.1s ease-out both, wpTintIn 0.7s ease-out 3.2s both"}}>
               {narrative}
               <span style={{position:"absolute",top:0,bottom:0,left:0,width:"45%",background:`linear-gradient(105deg,transparent,${T.blue}44,transparent)`,transform:"translateX(-110%)",animation:"wpSheen 1.4s ease-in-out 0.4s 2",pointerEvents:"none"}}/>
             </span>
-          </div>
-        );
-      })()}
-
-      {/* Annual target — moved here from the dashboard (Sales owns planning/review) */}
-      {(()=>{
-        const yr=ytd?ytd.year:String(new Date().getFullYear());
-        const ytdSales=ytd?ytd.sales.all:0;
-        const now=new Date();
-        const yearFrac=(now-new Date(now.getFullYear(),0,1))/(new Date(now.getFullYear()+1,0,1)-new Date(now.getFullYear(),0,1));
-        const pace=yearTarget?yearTarget*yearFrac:0;
-        const pct=yearTarget?Math.min((ytdSales/yearTarget)*100,100):0;
-        const diff=ytdSales-pace;
-        return(
-          <div style={{...card,marginBottom:16}}>
-            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:6}}>
-              <div style={{fontSize:isMobile?17:20,fontWeight:900,letterSpacing:"-0.4px"}}>{yr} <span style={{color:T.blue,fontStyle:"italic"}}>target</span>{ytd&&yearTarget&&ytd.sales.all>=yearTarget?" 🏆":""}</div>
-              {yearTarget&&tgtEdit===null&&<button onClick={()=>setTgtEdit(String(yearTarget))} style={{marginLeft:"auto",background:"transparent",border:`1px solid ${T.border}`,borderRadius:16,color:T.slate,padding:"4px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Edit target</button>}
-            </div>
-            {(!yearTarget||tgtEdit!==null)?(
-              <div>
-                <div style={{fontSize:12,color:T.muted,marginBottom:10,lineHeight:1.6}}>Set your total sales target for {yr} (both locations combined) to track pace against it all year.</div>
-                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                  <span style={{fontSize:15,fontWeight:700,color:T.slate}}>$</span>
-                  <input type="number" min="1" placeholder="e.g. 250000" value={tgtEdit??""} onChange={e=>setTgtEdit(e.target.value)} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,color:T.ink,padding:"8px 12px",fontSize:14,width:140}}/>
-                  <button onClick={()=>{saveYearTarget(tgtEdit);setTgtEdit(null);}} style={{background:T.blue,color:"#fff",border:"none",borderRadius:16,padding:"8px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Save target</button>
-                  {yearTarget&&<button onClick={()=>setTgtEdit(null)} style={{background:"transparent",border:"none",color:T.muted,fontSize:13,cursor:"pointer"}}>Cancel</button>}
-                </div>
-              </div>
-            ):(
-              <div>
-                <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",marginBottom:10}}>
-                  <span style={{fontSize:isMobile?24:29,fontWeight:900,color:T.blue,letterSpacing:"-0.5px"}}>{fmtK2(ytdSales)}</span>
-                  <span style={{fontSize:isMobile?13:14,color:T.muted}}>of {fmtK2(yearTarget)} · {(yearTarget?(ytdSales/yearTarget)*100:0).toFixed(1)}% · year to date</span>
-                </div>
-                <div style={{position:"relative",height:11,background:T.border,borderRadius:6,marginBottom:8}}>
-                  <div style={{position:"absolute",height:"100%",width:`${pct}%`,background:diff>=0?T.teal:T.blue,borderRadius:6}}/>
-                  <div style={{position:"absolute",left:`${Math.min(yearFrac*100,100)}%`,top:-3,width:2.5,height:17,background:T.ink,opacity:0.6}} title="Where you should be today at an even pace"/>
-                </div>
-                <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
-                  <span style={{fontSize:13,fontWeight:800,color:diff>=0?T.teal:T.coral}}>{diff>=0?`Ahead of pace by ${fmtK2(diff)}`:`Behind pace by ${fmtK2(-diff)}`}</span>
-                  <span style={{fontSize:11,color:T.muted}}>Pace marker = even spend of the year to date ({fmtK2(pace)})</span>
-                </div>
-              </div>
-            )}
           </div>
         );
       })()}
@@ -2197,7 +2167,7 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
       })()}
 
       {showForm&&(
-        <div style={{...card,marginBottom:16,borderColor:T.blue,padding:0,overflow:"hidden"}}>
+        <div className="wpLift" style={{...card,marginBottom:16,borderColor:T.blue,padding:0,overflow:"hidden"}}>
           <div style={{background:T.blueL,padding:isMobile?"14px 16px":"16px 20px",borderBottom:`1px solid ${T.border}`}}>
             <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:4}}>
               <div style={{fontSize:isMobile?15:17,fontWeight:800,color:T.blueDark}}>Enter monthly sales</div>
@@ -2262,6 +2232,8 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
         </div>
       )}
 
+      {/* Items 22+23: period explorer (left) + compact tinted annual target (right); split matches the chart cards below */}
+      <div style={{display:"grid",gridTemplateColumns:isDesktop?"repeat(2,minmax(0,1fr))":"minmax(0,1fr)",gap:isMobile?12:16,marginBottom:16,alignItems:"stretch"}}>
       {(()=>{
         const MN=MNc;
         const now=new Date();
@@ -2283,7 +2255,7 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
         const g=brev-c,p=brev?(c/brev)*100:0,other=Math.max(0,r-brev);
         const hasData=pm.some(m=>data.sales[m]);
         return(
-          <div style={{...card,marginBottom:16}}>
+          <div className="wpLift" style={{...card,height:"100%",display:"flex",flexDirection:"column"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:16}}>
               <div style={{display:"flex",gap:3,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:3}}>
                 {[["month","Month"],["quarter","Quarter"],["year","Year"]].map(([id,lb])=>(
@@ -2319,8 +2291,8 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
             ):(
               <>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:isMobile?8:12,marginBottom:loc==="all"?16:0}}>
-                  {[["Total Sales",r,T.blue,T.blueL],["Bowl Food Cost",c,p>30?T.coral:T.amber,p>30?T.coralL:T.amberL],["Bowl Gross Profit",g,T.teal,T.tealL]].map(([l,v,col,bg])=>(
-                    <div key={l} style={{background:bg,borderRadius:10,padding:isMobile?"10px 12px":isDesktop?"9px 14px":"14px 18px",border:`1px solid ${T.border}`}}>
+                  {[["Total Sales",r,T.blue,T.blueL],["Food Cost",c,p>30?T.coral:T.amber,p>30?T.coralL:T.amberL],["Gross Profit",g,T.teal,T.tealL]].map(([l,v,col,bg])=>(
+                    <div key={l} className="wpLift" style={{background:bg,borderRadius:10,padding:isMobile?"10px 12px":isDesktop?"9px 14px":"14px 18px",border:"none"}}>
                       <div style={{fontSize:isDesktop?11:10,color:T.inkL,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:isDesktop?3:5}}>{l}</div>
                       <div style={{fontSize:isMobile?18:isDesktop?18:24,fontWeight:900,color:col,letterSpacing:"-0.5px"}}>${fmt(v)}</div>
                     </div>
@@ -2369,8 +2341,104 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
         );
       })()}
 
+      {/* Item 22: annual target — compact, distance-to-go bar, tinted by pace (teal ahead · amber behind · coral >20% behind) */}
+      {(()=>{
+        const yr=ytd?ytd.year:String(new Date().getFullYear());
+        const ytdSales=ytd?ytd.sales.all:0;
+        const now=new Date();
+        const yearFrac=(now-new Date(now.getFullYear(),0,1))/(new Date(now.getFullYear()+1,0,1)-new Date(now.getFullYear(),0,1));
+        const pace=yearTarget?yearTarget*yearFrac:0;
+        const diff=ytdSales-pace;
+        const ratio=yearTarget?ytdSales/yearTarget:0;
+        const behindFar=diff<0&&pace>0&&(-diff)>pace*0.2;
+        const acc=diff>=0?T.teal:behindFar?T.coral:T.amber;
+        const accL=diff>=0?T.tealL:behindFar?T.coralL:T.amberL;
+        const showBar=yearTarget&&tgtEdit===null;
+        const over=ratio>1,far=ratio>1.5;
+        const dkTeal="#0F6E56";
+        return(
+          <div className="wpLift" style={{...card,...(showBar?{background:accL,border:"none"}:{}),height:"100%",display:"flex",flexDirection:"column"}}>
+            <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap",marginBottom:6}}>
+              <div style={{fontSize:isMobile?15:17,fontWeight:900,letterSpacing:"-0.4px"}}>{yr} <span style={{color:T.blue,fontStyle:"italic"}}>target</span>{ytd&&yearTarget&&ytdSales>=yearTarget?" 🏆":""}</div>
+              {yearTarget&&tgtEdit===null&&<button onClick={()=>setTgtEdit(String(yearTarget))} style={{marginLeft:"auto",background:T.card,border:`1px solid ${acc}55`,borderRadius:16,color:T.slate,padding:"4px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Edit target</button>}
+            </div>
+            {showBar&&<div style={{fontSize:12.5,color:T.slate,marginBottom:4}}><span style={{fontWeight:800,color:acc,fontSize:14}}>{fmtK2(ytdSales)}</span> of {fmtK2(yearTarget)} · year to date · {diff>=0?`ahead of pace by ${fmtK2(diff)}`:`behind pace by ${fmtK2(-diff)}`}</div>}
+            {(!yearTarget||tgtEdit!==null)?(
+              <div>
+                <div style={{fontSize:12,color:T.muted,marginBottom:10,lineHeight:1.6}}>Set your total sales target for {yr} (both locations combined) to track pace against it all year.</div>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <span style={{fontSize:15,fontWeight:700,color:T.slate}}>$</span>
+                  <input type="number" min="1" placeholder="e.g. 250000" value={tgtEdit??""} onChange={e=>setTgtEdit(e.target.value)} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,color:T.ink,padding:"8px 12px",fontSize:14,width:140}}/>
+                  <button onClick={()=>{saveYearTarget(tgtEdit);setTgtEdit(null);}} style={{background:T.blue,color:"#fff",border:"none",borderRadius:16,padding:"8px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Save target</button>
+                  {yearTarget&&<button onClick={()=>setTgtEdit(null)} style={{background:"transparent",border:"none",color:T.muted,fontSize:13,cursor:"pointer"}}>Cancel</button>}
+                </div>
+              </div>
+            ):(
+              <div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column",alignItems:"center"}}>
+                {(()=>{
+                  // Item 27: minimal fading gauge — one continuous half-donut in the pace tint colour fading
+                  // Excel-style from solid at $0 to near-transparent at the target end (horizontal gradient =
+                  // seam-free since x increases monotonically along a semicircle). Flat green needle, yellow
+                  // even-pace dot, % only in the centre; everything else lives in hover tooltips + legend.
+                  const CX=130,CY=118,R=98,pt=(f,r=R)=>{const a=Math.PI*(1-Math.min(Math.max(f,0),1));return[CX+r*Math.cos(a),CY-r*Math.sin(a)];};
+                  const nf=Math.min(ratio,1);
+                  const[nx,ny]=pt(nf,90);
+                  const na=Math.PI*(1-nf);
+                  const bx=6*Math.sin(na),by=6*Math.cos(na);
+                  const pf=Math.min(yearFrac,1);
+                  const[px,py]=pt(pf);
+                  const paceTip=`Where you should be today at even pace: ${fmtK2(pace)} — you're ${fmtK2(Math.abs(diff))} ${diff>=0?"ahead":"behind"}`;
+                  return(
+                    <div style={{flex:1,minHeight:0,width:"100%",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <svg viewBox="0 0 260 140" style={{width:"100%",height:"100%",minHeight:130,maxHeight:420}} role="img" aria-label={`${(ratio*100).toFixed(1)}% of the ${yr} target of ${fmtK2(yearTarget)}`}>
+                      <defs>
+                        <linearGradient id="wpGaugeFade" gradientUnits="userSpaceOnUse" x1={CX-R} y1="0" x2={CX+R} y2="0">
+                          <stop offset="0%" stopColor={acc} stopOpacity="1"/>
+                          <stop offset="100%" stopColor={acc} stopOpacity="0.07"/>
+                        </linearGradient>
+                      </defs>
+                      <path d={`M${CX-R} ${CY} A${R} ${R} 0 0 1 ${CX+R} ${CY}`} fill="none" stroke="url(#wpGaugeFade)" strokeWidth="30" strokeLinecap="round">
+                        <title>{`Your ${yr} target: ${fmtK2(yearTarget)} · ${over?`${fmtK2(ytdSales-yearTarget)} past it`:`${fmtK2(yearTarget-ytdSales)} still to go`}`}</title>
+                      </path>
+                      <g fill="#5CB85F" opacity="0.85">
+                        <title>{`Sales so far — ${fmtK2(ytdSales)} year to date`}</title>
+                        <path d={`M${nx.toFixed(1)} ${ny.toFixed(1)} L${(CX+bx).toFixed(1)} ${(CY-by).toFixed(1)} L${(CX-bx).toFixed(1)} ${(CY+by).toFixed(1)} Z`}/>
+                        <circle cx={CX} cy={CY} r="10"/>
+                      </g>
+                      <text x={CX} y="98" textAnchor="middle" fontSize="30" fontWeight="900" fill={acc}>
+                        {far?`×${ratio.toFixed(1)}`:`${(ratio*100).toFixed(1)}%`}
+                        <title>{`Sales so far: ${fmtK2(ytdSales)} = ${(ratio*100).toFixed(1)}% of your ${yr} target`}</title>
+                      </text>
+                      {!over&&(
+                        <g>
+                          <title>{paceTip}</title>
+                          <circle cx={px.toFixed(1)} cy={py.toFixed(1)} r="17.5" fill={T.card}/>
+                          <circle cx={px.toFixed(1)} cy={py.toFixed(1)} r="14" fill="#F5B93E"/>
+                        </g>
+                      )}
+                    </svg>
+                    </div>
+                  );
+                })()}
+                <div style={{borderTop:`1px solid ${acc}22`,marginTop:10,paddingTop:10,width:"100%",display:"flex",gap:10,flexWrap:"wrap"}}>
+                  <div style={{flex:1,minWidth:140,display:"flex",gap:8,alignItems:"flex-start"}}>
+                    <span style={{width:12,height:12,borderRadius:"50%",background:"#5CB85F",marginTop:3,flexShrink:0}}/>
+                    <span style={{fontSize:12,lineHeight:1.5}}><span style={{fontWeight:700,color:T.navy}}>Green needle</span><br/><span style={{color:T.slate}}>Sales so far</span></span>
+                  </div>
+                  <div style={{flex:1,minWidth:170,display:"flex",gap:8,alignItems:"flex-start",borderLeft:`1px solid ${acc}22`,paddingLeft:12}}>
+                    <span style={{width:12,height:12,borderRadius:"50%",background:"#F5B93E",marginTop:3,flexShrink:0}}/>
+                    <span style={{fontSize:12,lineHeight:1.5}}><span style={{fontWeight:700,color:T.navy}}>Yellow dot</span><br/><span style={{color:T.slate}}>Where you should be today</span></span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+      </div>
+
       {/* Row 2 (item 12): Menu cost analysis moved up, above the trend charts */}
-      <div style={{...card,marginBottom:16}}>
+      <div className="wpLift" style={{...card,marginBottom:16}}>
         {(()=>{window.__salesPeriodMonth=(()=>{
           const MNz=MNc;
           const now=new Date();
@@ -2435,25 +2503,25 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
           <>
             {/* Row 3 (item 12): COGS vs Sales + Top 3 sellers side by side on desktop */}
             <div style={{display:"grid",gridTemplateColumns:isDesktop?"repeat(2,minmax(0,1fr))":"minmax(0,1fr)",gap:isMobile?10:16,marginBottom:16}}>
-              <div style={card}>
+              <div className="wpLift" style={card}>
                 <h3 style={{margin:"0 0 4px",fontSize:isMobile?15:18,fontWeight:800}}>Bowl COGS vs Sales trend</h3>
                 <div style={{fontSize:12,color:T.muted,marginBottom:12}}>Grouped by {period} · {locKey==="all"?"both locations":data.locations[locKey]}</div>
                 <MultiLine series={cogsSales} T={T}/>
               </div>
-              <div style={card}>
+              <div className="wpLift" style={card}>
                 <h3 style={{margin:"0 0 4px",fontSize:isMobile?15:18,fontWeight:800}}>Top 3 sellers · net profit</h3>
                 <div style={{fontSize:12,color:T.muted,marginBottom:12}}>Best sellers ranked by what they actually earn · profit uses current recipe costs, per size</div>
                 <MultiLine series={profitSeries} T={T}/>
               </div>
             </div>
             {/* Row 4: Units sold per bowl, full width — measures all bowls once populated */}
-            <div style={{...card,marginBottom:16}}>
+            <div className="wpLift" style={{...card,marginBottom:16}}>
               <h3 style={{margin:"0 0 4px",fontSize:isMobile?15:18,fontWeight:800}}>Units sold per bowl</h3>
               <div style={{fontSize:12,color:T.muted,marginBottom:12}}>What sells best · needs bowl counts uploaded with monthly sales</div>
               <MultiLine series={bowlSeries} T={T} money={false}/>
             </div>
             {/* Row 5: Top 5 add-ons — stub until detailed POS output integration (V2) */}
-            <div style={{...card,marginBottom:16,borderStyle:"dashed"}}>
+            <div className="wpLift" style={{...card,marginBottom:16,borderStyle:"dashed"}}>
               <h3 style={{margin:"0 0 4px",fontSize:isMobile?15:18,fontWeight:800}}>Top 5 add-ons <span style={{fontSize:11,color:T.muted,fontWeight:600}}>· coming in V2</span></h3>
               <div style={{fontSize:12,color:T.muted,lineHeight:1.6}}>Your best-selling add-ons (extra protein, premium toppings, aburi prep…) will rank here once the detailed POS product report upload lands in V2 — the current template only carries sides/drinks as $ totals.</div>
             </div>
@@ -2557,7 +2625,7 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
           {scanning&&<div style={{background:T.blueL,borderRadius:14,padding:18,textAlign:"center",color:T.blue,fontSize:isMobile?14:16,fontWeight:700}}>🔍 Reading receipt and checking for duplicates...</div>}
 
           {scanRes&&!scanning&&(
-            <div style={{...card,borderColor:T.amber}}>
+            <div className="wpLift" style={{...card,borderColor:T.amber}}>
               <div style={{fontSize:isMobile?16:18,fontWeight:800,marginBottom:2}}>Review &amp; correct</div>
               <div style={{fontSize:13,color:T.muted,marginBottom:10}}>{scanRes.supplier} · {scanRes.date} · {scanRes.items?.length} lines</div>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,flexWrap:"wrap"}}>
@@ -2621,7 +2689,7 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
       )}
 
       {!scanRes&&(
-        <div style={{...card,marginTop:22,padding:0,overflow:"hidden"}}>
+        <div className="wpLift" style={{...card,marginTop:22,padding:0,overflow:"hidden"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",padding:isMobile?"12px 14px":"14px 18px",borderBottom:`1px solid ${T.border}`}}>
             <div style={{fontSize:isMobile?15:17,fontWeight:800}}>Upload history</div>
             <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
@@ -2687,7 +2755,7 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
 
 // ─── INSIGHTS ────────────────────────────────────────────────────────────────
 function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,insightsDate,loadingInsights,insightsStale,generateInsights,insightChat,chatInput,setChatInput,chatLoading,sendChat}){
-  const [iView,setIView]=useState("cards");
+  const [iView,setIView]=useState("list");
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
@@ -2707,7 +2775,7 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,insightsDate,
       </div>
 
       {!aiInsights&&!loadingInsights&&(
-        <div style={{...card,textAlign:"center",padding:"48px 32px"}}>
+        <div className="wpLift" style={{...card,textAlign:"center",padding:"48px 32px"}}>
           <div style={{fontSize:48,marginBottom:16}}>✦</div>
           <div style={{fontSize:isMobile?16:20,fontWeight:700,marginBottom:8}}>Ready to analyse your data</div>
           <div style={{fontSize:isMobile?13:15,color:T.muted,lineHeight:1.7,maxWidth:480,margin:"0 auto 24px"}}>Claude will analyse your real ingredient costs, menu margins and location performance, then give specific actionable recommendations — not generic advice.</div>
@@ -2716,7 +2784,7 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,insightsDate,
       )}
 
       {loadingInsights&&(
-        <div style={{...card,textAlign:"center",padding:"48px 32px"}}>
+        <div className="wpLift" style={{...card,textAlign:"center",padding:"48px 32px"}}>
           <div style={{fontSize:36,marginBottom:14}}>⏳</div>
           <div style={{fontSize:16,fontWeight:700,marginBottom:6}}>Analysing your data...</div>
           <div style={{fontSize:14,color:T.muted}}>Ingredient costs · menu margins · location performance</div>
@@ -2725,39 +2793,42 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,insightsDate,
 
       {aiInsights&&!loadingInsights&&(
         <div>
-          <div style={{background:T.navy,borderRadius:isDesktop?12:16,padding:isMobile?"18px 20px":isDesktop?"14px 18px":"24px 28px",marginBottom:isDesktop?12:16}}>
+          <div className="wpLift" style={{background:T.navy,borderRadius:isDesktop?12:16,padding:isMobile?"18px 20px":isDesktop?"14px 18px":"24px 28px",marginBottom:isDesktop?12:16}}>
             <div style={{fontSize:10,color:T.bg,opacity:0.55,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:isDesktop?4:8}}>✦ Generated {new Date(insightsDate||Date.now()).toLocaleDateString("en-CA",{day:"numeric",month:"short",year:"numeric"})} · based on {latMon} data</div>
             <div style={{fontSize:isMobile?18:isDesktop?16:24,fontWeight:800,color:T.bg,lineHeight:1.4}}>{aiInsights.headline}</div>
           </div>
-          <div style={card}>
-            <div style={{fontSize:isMobile?15:17,fontWeight:700,marginBottom:4}}>Ask a question about your data</div>
-            <div style={{fontSize:13,color:T.muted,marginBottom:14}}>e.g. "Which bowl has the worst margin?" or "If tuna goes up 10% what happens?"</div>
+          {/* Item 20: Ask + Focus side by side on desktop, both tinted; split matches the insight cards grid below */}
+          <div style={{display:"grid",gridTemplateColumns:isDesktop&&aiInsights.focus?.bowl?"repeat(2,minmax(0,1fr))":"minmax(0,1fr)",gap:isMobile?12:16,marginBottom:16,alignItems:"stretch"}}>
+          <div className="wpLift" style={{...card,background:T.blueL,border:"none",display:"flex",flexDirection:"column"}}>
+            <div style={{fontSize:isMobile?15:17,fontWeight:700,marginBottom:4,color:T.blueDark}}>Ask a question about your data</div>
+            <div style={{fontSize:13,color:T.blueDark,opacity:0.75,marginBottom:14}}>e.g. "Which bowl has the worst margin?" or "If tuna goes up 10% what happens?"</div>
             {insightChat.length>0&&(
               <div style={{marginBottom:14,maxHeight:320,overflowY:"auto"}}>
                 {insightChat.map((msg,i)=>(
                   <div key={i} style={{marginBottom:10,display:"flex",justifyContent:msg.role==="user"?"flex-end":"flex-start"}}>
-                    <div style={{background:msg.role==="user"?T.blue:T.bg,color:msg.role==="user"?"#fff":T.navy,borderRadius:msg.role==="user"?"16px 16px 4px 16px":"16px 16px 16px 4px",padding:"10px 14px",maxWidth:"85%",fontSize:14,lineHeight:1.6,border:msg.role==="assistant"?`1px solid ${T.border}`:"none"}}>{msg.content}</div>
+                    <div style={{background:msg.role==="user"?T.blue:T.card,color:msg.role==="user"?"#fff":T.navy,borderRadius:msg.role==="user"?"16px 16px 4px 16px":"16px 16px 16px 4px",padding:"10px 14px",maxWidth:"85%",fontSize:14,lineHeight:1.6,border:msg.role==="assistant"?`1px solid ${T.border}`:"none"}}>{msg.content}</div>
                   </div>
                 ))}
                 {chatLoading&&<div style={{display:"flex",gap:4,padding:"10px 14px"}}>{[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:T.muted,animation:`bounce 1s ${i*0.15}s infinite`}}/>)}</div>}
               </div>
             )}
-            <div style={{display:"flex",gap:8}}>
-              <input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendChat()} placeholder="Ask anything about your costs and margins..." style={{flex:1,background:T.bg,border:`1px solid ${T.border}`,borderRadius:12,padding:"11px 16px",color:T.navy,fontSize:14,fontFamily:"inherit",outline:"none"}}/>
+            <div style={{display:"flex",gap:8,marginTop:"auto"}}>
+              <input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendChat()} placeholder="Ask anything about your costs and margins..." style={{flex:1,background:T.card,border:`1px solid ${T.blue}33`,borderRadius:12,padding:"11px 16px",color:T.navy,fontSize:14,fontFamily:"inherit",outline:"none"}}/>
               <button onClick={sendChat} disabled={chatLoading||!chatInput.trim()} style={{background:T.blue,color:"#fff",border:"none",borderRadius:12,padding:"11px 18px",fontSize:14,fontWeight:700,cursor:chatLoading||!chatInput.trim()?"not-allowed":"pointer",opacity:chatLoading||!chatInput.trim()?0.6:1,flexShrink:0}}>Send</button>
             </div>
           </div>
           {aiInsights.focus?.bowl&&(
-            <div style={{background:T.card,border:`1px solid ${T.border}`,borderLeft:`4px solid ${T.teal}`,borderRadius:isMobile?12:16,padding:isMobile?"16px":"18px 22px",marginBottom:16}}>
+            <div className="wpLift" style={{background:T.tealL,border:"none",borderLeft:`4px solid ${T.teal}`,borderRadius:isMobile?12:16,padding:isMobile?"16px":"18px 22px"}}>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
                 <span style={{fontSize:20}}>🎯</span>
                 <span style={{fontSize:isMobile?14:16,fontWeight:800}}>This month's focus: push the {aiInsights.focus.bowl}</span>
-                <Tag c={T.slate} bg={T.bg} sm>ADVISORY</Tag>
+                <Tag c={T.teal} bg={T.card} sm>ADVISORY</Tag>
               </div>
               <div style={{fontSize:isMobile?13:14,color:T.slate,lineHeight:1.65,marginBottom:6}}>{aiInsights.focus.reason}</div>
               {aiInsights.focus.contingency&&<div style={{fontSize:12,color:T.muted}}>{aiInsights.focus.contingency}</div>}
             </div>
           )}
+          </div>
           <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
             <div style={{display:"flex",gap:2,background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:2}}>
               {[["cards","▦ Cards"],["list","≡ List"]].map(([id,lb])=>(
@@ -2766,7 +2837,7 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,insightsDate,
             </div>
           </div>
           {iView==="list"&&(
-            <div style={{...card,padding:0,overflow:"hidden",marginBottom:20}}>
+            <div className="wpLift" style={{...card,padding:0,overflow:"hidden",marginBottom:20}}>
               {aiInsights.insights?.map((ins,i,arr)=>{
                 const col=ins.priority==="high"?T.coral:ins.priority==="medium"?T.amber:T.teal;
                 return(
@@ -2929,7 +3000,7 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedP
         {histMonth!=="live"&&<span style={{fontSize:12,color:T.amber,fontWeight:600}}>Showing costs as they were in {histMonth} · editing disabled</span>}
       </div>
       {Object.keys(data.menu).length===0&&(
-        <div style={{...card,textAlign:"center",padding:"48px 24px",color:T.muted}}>
+        <div className="wpLift" style={{...card,textAlign:"center",padding:"48px 24px",color:T.muted}}>
           <div style={{fontSize:44,marginBottom:12}}>🍲</div>
           <div style={{fontSize:16,fontWeight:700,color:T.slate,marginBottom:6}}>No menu items yet</div>
           <div style={{fontSize:14}}>Add your first bowl above to start tracking margins.</div>
@@ -2952,7 +3023,7 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedP
           const fp=headSell?(headCost/headSell)*100:0;
           const mg=headSell?((headSell-headCost)/headSell)*100:0;
           return(
-            <div key={name} onClick={()=>!hist&&!isSel&&open(name)} style={{...card,borderColor:isSel?T.blue:T.border,cursor:isSel||hist?"default":"pointer",gridColumn:isSel&&isDesktop?"1 / -1":"auto"}}>
+            <div key={name} onClick={()=>!hist&&!isSel&&open(name)} className="wpLift" style={{...card,borderColor:isSel?T.blue:T.border,cursor:isSel||hist?"default":"pointer",gridColumn:isSel&&isDesktop?"1 / -1":"auto"}}>
               <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
                 <div style={{flex:1,minWidth:120}}>
                   <div style={{fontSize:isMobile?15:17,fontWeight:700}}>{name}</div>

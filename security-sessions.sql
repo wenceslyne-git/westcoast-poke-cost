@@ -8,7 +8,7 @@ language plpgsql security definer set search_path = ''
 as $$
 begin
   if coalesce(auth.jwt()->>'email','') not in
-     ('wenceslyne@elitelvlservices.com','sbgomez604@gmail.com','r_gomez_02@yahoo.com') then
+     ('wenceslyne@elitelvlservices.com','sheila@westcoastpoke.com','richard@westcoastpoke.com') then
     raise exception 'Not authorized';
   end if;
   return query
@@ -25,7 +25,7 @@ language plpgsql security definer set search_path = ''
 as $$
 begin
   if coalesce(auth.jwt()->>'email','') not in
-     ('wenceslyne@elitelvlservices.com','sbgomez604@gmail.com','r_gomez_02@yahoo.com') then
+     ('wenceslyne@elitelvlservices.com','sheila@westcoastpoke.com','richard@westcoastpoke.com') then
     raise exception 'Not authorized';
   end if;
   -- Refuse to end your own session from here (the app disables the button too)
