@@ -1,5 +1,37 @@
 # Change list
 
+## 18. AI refresh moves into the Insights page (approved + BUILT 2026-07-20, NOT committed)
+- Also fixed in this pass: dark-mode nav tooltips were blank (white-on-white — tooltip text was hardcoded #fff on T.navy, which flips near-white in dark mode; now uses T.bg).
+- Remove the blue AI-refresh circle from the header entirely (original accidental-press culprit; redundant with Insights' Regenerate).
+- Insights nav icon keeps its coral stale-dot as the "new data" nudge.
+- Insights page: when insights are stale, show a one-line hint near Regenerate — "your data has changed since these were generated" — preserving the context the header tooltip used to carry.
+
+## 17. Narrative animation + sales form close (approved + BUILT 2026-07-20, NOT committed)
+- 14b amendment (decided via mockups): Sales narrative line gets C's accent bar (draws in on load, stays permanently) + B's shimmer sweep (sheen crosses the text twice on load and whenever the narrative text changes, then rests — no perpetual motion).
+- "Enter monthly sales" form gets an ✕ in its top-right corner (same style as the Edit month modal's ✕) that closes the form and clears unsaved parse state.
+
+## 16. Notification bell in left nav (approved + BUILT 2026-07-20, NOT committed)
+- Bell icon in the left nav with badge count of open "keep-up" items.
+- Panel lists actionable nudges, each with a one-tap action: market sample due → Run sample (via confirm/countdown) · stale ingredient cost (item 15's 30-day check) → Scan receipt · bowl counts not uploaded for latest month → Go to Sales · price alert over threshold → Review.
+- Banner treatment (recommended + approved): keep ONLY the amber sample-due banner (time-sensitive, twice monthly); price alerts and everything else move fully into the bell — no more stacked banners.
+- Items self-clear when resolved (sample run, cost refreshed, counts uploaded); no manual mark-as-read.
+- All computed frontend from loaded data — no backend, no API cost.
+
+## 15. Gamified data health — score ring + streaks + celebrations (approved + BUILT 2026-07-20, NOT committed)
+Goal: gamify data completeness (not time-in-app) — insights are only as good as the data fed in.
+- Data health score: 0–100 ring on the dashboard, scored per month from: sales entered, bowl counts uploaded, ingredient costs FRESH (≥80% of recipe-used ingredients have a price entry within the last 30 days — ingredients not in any bowl ignored), both market samples run. Colour coral→amber→teal, with a one-line "what's missing to hit 100" hint.
+- Staleness notice (amended 2026-07-20): no receipt-count quota — uploading isn't a "happy" target since it's money out; instead detect recipe-used ingredients with no cost recorded in the past 30 days (default, adjustable) and name them in the hint: "No cost recorded for X in 34 days — scan a recent invoice to refresh." Computed frontend from loaded data, no backend job. Per-ingredient threshold override = later, not v1.
+- Streaks (stored in settings table): months-in-a-row sales entered, consecutive market samples, receipts this month. Shown in success toasts ("June sales entered — 6 months without a gap") and optionally in the sample-due banner ("don't break your 4-sample streak"). Never guilt-trip on broken streaks — show the new streak starting.
+- Celebrations: pure-CSS micro-animations scaled by effort — full confetti for monthly sales entry and hitting 100, light sparkle + running counter on EVERY invoice upload (no quota — celebrate the habit, not the spend), quick check-pulse for samples. ~1–1.5s, no sound, never blocks UI.
+- Added 2026-07-20 (amended): EVERY monthly sales save gets full-page confetti (~1.5–2s) — the habit is the win, celebrate it regardless of the numbers. Beating the previous month adds the comparison callout in the toast ("July saved · $3,400 — up 12% on June 📈"), same animation. Down months get an encouragement callout — always acknowledge the dip first, then the best TRUE silver lining, picked in order: margin held/improved → streak intact → still ahead of pace/last year → fallback "it's tracked, and tracked months are fixable months." Never fake positivity. DECIDED (2026-07-20, explicit): down-month animation = LOGO FISH jump + splash (brand yin-yang fish as SVG in brand colours, leaps across screen, splash on landing), encouragement toast surfaces after with "Keep swimming." closer. Confetti stays for up/level months. Yearly target stays the grand tier: longer rain (~2.5–3s) + trophy banner, fires once via `celebrated_<year>` settings flag, target card wears 🏆 for the rest of the year.
+- Deliberately excluded: points, levels, leaderboards, badge collections.
+
+## 14. Headings pizzazz + dynamic Sales narrative (approved + BUILT 2026-07-20, NOT committed)
+Visual direction approved via mockup.
+- 14a: Tab headings get the dashboard treatment — short punchy line with one coloured italic word per tab (Sales "Your numbers, straight up." blue · Menu "Every bowl, costed." teal · Suppliers "Know who's cheapest." coral · Insights "What the data says." purple), small grey tab name beneath. Dashboard hero back up to ~32px desktop. Colours from existing theme palette.
+- 14a: 2026 target card restored to hero style — "2026 *target*" accent heading, ~28–30px figure, ~11px progress bar with visible pace marker, pace line 13px bold.
+- 14b: Rules-based (no API) dynamic one-liner under the Sales heading, always citing a real number; template picked by conditions: up vs last month / best month of year / down-but-margin-held / ahead of pace / behind-but-improving / no data yet. Encouraging but honest — no fake cheer on bad months.
+
 ## 13. Dashboard = act, Sales = review (approved + BUILT 2026-07-20)
 - Annual target card moved from Dashboard to top of Sales tab (YTD strip removed entirely — redundant with Sales' month/quarter/year view).
 - Dashboard now shows a current-month strip (sales, bowl food cost $ + %, bowl gross profit, other revenue) for the latest entered month, location-aware, splits on hover.

@@ -708,7 +708,7 @@ export default function App(){
 
       {celebrate&&<Celebration T={T} c={celebrate}/>}
 
-      {tip&&<div style={{position:"fixed",left:tip.x,top:tip.y,transform:tip.side==="right"?"translateY(-50%)":"translateX(-50%)",background:T.navy,color:"#fff",fontSize:11,fontWeight:600,padding:"5px 9px",borderRadius:7,pointerEvents:"none",zIndex:2000,whiteSpace:"nowrap",boxShadow:"0 4px 14px rgba(0,0,0,0.22)"}}>{tip.text}</div>}
+      {tip&&<div style={{position:"fixed",left:tip.x,top:tip.y,transform:tip.side==="right"?"translateY(-50%)":"translateX(-50%)",background:T.navy,color:T.bg,fontSize:11,fontWeight:600,padding:"5px 9px",borderRadius:7,pointerEvents:"none",zIndex:2000,whiteSpace:"nowrap",boxShadow:"0 4px 14px rgba(0,0,0,0.22)"}}>{tip.text}</div>}
 
       {/* header */}
       <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"6px 10px":"8px 20px",display:"flex",alignItems:"center",minHeight:isMobile?52:64,gap:isMobile?6:8,flexWrap:"nowrap",flexShrink:0,width:"100%",overflow:"hidden"}}>
@@ -727,10 +727,6 @@ export default function App(){
           ))}
         </div>
         <div style={{display:"flex",gap:isMobile?4:8,alignItems:"center",flexShrink:0}}>
-          <button onClick={()=>{setTab("insights");if(!loadingInsights)armPaid({label:"AI insights refresh",secs:3,lastAt:insightsDate,fn:generateInsights});}} {...tipBelow(insightsStale?"New data — refresh AI insights":"Refresh AI insights")} aria-label="Refresh AI insights" style={{position:"relative",background:T.blueL,border:`1.5px solid ${T.blue}66`,borderRadius:"50%",width:isMobile?32:34,height:isMobile?32:34,color:T.blue,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
-            <HdrIcon id="refresh" size={isMobile?17:18}/>
-            {insightsStale&&<span style={{position:"absolute",top:-2,right:-2,width:9,height:9,borderRadius:"50%",background:T.coral,border:`2px solid ${T.card}`}}/>}
-          </button>
           <button onClick={()=>setTab("scan")} {...tipBelow("Scan receipt")} aria-label="Scan receipt" style={{background:T.blue,border:"none",borderRadius:20,padding:isMobile?"6px 8px":"7px 16px",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}><HdrIcon id="camera" size={isMobile?18:18}/>{!isMobile&&<span>Scan receipt</span>}</button>
           <button onClick={signOut} {...tipBelow(session.user?.email||"Sign out")} aria-label="Sign out" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.muted,padding:isMobile?"5px 8px":"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}><HdrIcon id="signout" size={isMobile?17:18}/>{!isMobile&&<span>Sign out</span>}</button>
           <button onClick={()=>setDark(v=>!v)} aria-label={dark?"Switch to light mode":"Switch to dark mode"} {...tipBelow(dark?"Light mode":"Dark mode")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:"50%",width:isMobile?32:34,height:isMobile?32:34,color:T.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}><HdrIcon id={dark?"sun":"moon"} size={isMobile?17:18}/></button>
@@ -817,12 +813,12 @@ export default function App(){
           catch(e){console.error(e);say("Save failed — try again",true);}
         }}}/>}
         {tab==="scan"&&<Scan {...{T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan:()=>armPaid({label:"Receipt extraction (~$0.02)",secs:3,lastAt:null,fn:doScan}),okScan,onFile,fileRef,scanLoc,setScanLoc,locations:data.locations,data,reload,say}}/>}
-        {tab==="insights"&&<Insights {...{T,isMobile,isDesktop,card,Tag,latMon,aiInsights,insightsDate,loadingInsights,generateInsights:()=>armPaid({label:"AI insights",secs:3,lastAt:insightsDate,fn:generateInsights}),insightChat,chatInput,setChatInput,chatLoading,sendChat}}/>}
+        {tab==="insights"&&<Insights {...{T,isMobile,isDesktop,card,Tag,latMon,aiInsights,insightsDate,loadingInsights,insightsStale,generateInsights:()=>armPaid({label:"AI insights",secs:3,lastAt:insightsDate,fn:generateInsights}),insightChat,chatInput,setChatInput,chatLoading,sendChat}}/>}
       </div>
         </div>
       </div>
 
-      <style>{"@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}} @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}} @keyframes wpRain{0%{transform:translateY(-20px) rotate(0deg);opacity:1}85%{opacity:1}100%{transform:translateY(105vh) rotate(480deg);opacity:0}} @keyframes wpSpark{0%{transform:scale(0.4) translateY(6px);opacity:0}35%{transform:scale(1.25) translateY(-6px);opacity:1}100%{transform:scale(0.9) translateY(-22px);opacity:0}} @keyframes wpPop{0%{transform:scale(0.4);opacity:0}55%{transform:scale(1.25);opacity:1}100%{transform:scale(1);opacity:1}} @keyframes wpFish{0%{transform:translate(-80px,78vh) rotate(-38deg);opacity:0}10%{opacity:1}50%{transform:translate(45vw,16vh) rotate(6deg)}90%{opacity:1}100%{transform:translate(95vw,80vh) rotate(50deg);opacity:0}} @keyframes wpSplash{0%,80%{transform:translate(0,0) scale(0);opacity:0}90%{transform:translate(var(--dx),var(--dy)) scale(1);opacity:0.9}100%{transform:translate(var(--dx),calc(var(--dy) + 24px)) scale(0.7);opacity:0}} @keyframes wpBanner{0%{transform:translate(-50%,-50%) scale(0.7);opacity:0}70%{transform:translate(-50%,-50%) scale(1.05);opacity:1}100%{transform:translate(-50%,-50%) scale(1);opacity:1}} *{box-sizing:border-box} button:active:not(:disabled){transform:scale(0.97)}"}</style>
+      <style>{"@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}} @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}} @keyframes wpRain{0%{transform:translateY(-20px) rotate(0deg);opacity:1}85%{opacity:1}100%{transform:translateY(105vh) rotate(480deg);opacity:0}} @keyframes wpSpark{0%{transform:scale(0.4) translateY(6px);opacity:0}35%{transform:scale(1.25) translateY(-6px);opacity:1}100%{transform:scale(0.9) translateY(-22px);opacity:0}} @keyframes wpPop{0%{transform:scale(0.4);opacity:0}55%{transform:scale(1.25);opacity:1}100%{transform:scale(1);opacity:1}} @keyframes wpFish{0%{transform:translate(-80px,78vh) rotate(-38deg);opacity:0}10%{opacity:1}50%{transform:translate(45vw,16vh) rotate(6deg)}90%{opacity:1}100%{transform:translate(95vw,80vh) rotate(50deg);opacity:0}} @keyframes wpSplash{0%,80%{transform:translate(0,0) scale(0);opacity:0}90%{transform:translate(var(--dx),var(--dy)) scale(1);opacity:0.9}100%{transform:translate(var(--dx),calc(var(--dy) + 24px)) scale(0.7);opacity:0}} @keyframes wpBanner{0%{transform:translate(-50%,-50%) scale(0.7);opacity:0}70%{transform:translate(-50%,-50%) scale(1.05);opacity:1}100%{transform:translate(-50%,-50%) scale(1);opacity:1}} @keyframes wpBarIn{0%{transform:scaleY(0)}100%{transform:scaleY(1)}} @keyframes wpSlideIn{0%{opacity:0;transform:translateY(6px)}100%{opacity:1;transform:translateY(0)}} @keyframes wpSheen{0%{transform:translateX(-110%)}100%{transform:translateX(240%)}} *{box-sizing:border-box} button:active:not(:disabled){transform:scale(0.97)}"}</style>
     </div>
   );
 }
@@ -1999,7 +1995,15 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
           if(yearTarget&&ytd&&ytd.sales.all>=yearTarget*yearFrac)return `${last} dipped ${Math.abs(chg).toFixed(0)}% on ${prev.split(" ")[0]}, but you're still ahead of target pace on the year.`;
           return `${last} came in ${Math.abs(chg).toFixed(0)}% below ${prev.split(" ")[0]} — it's tracked, and tracked months are fixable months. Keep swimming.`;
         })();
-        return <p style={{margin:"0 0 18px",fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6}}>{narrative}</p>;
+        return(
+          <div key={narrative} style={{display:"flex",gap:10,alignItems:"stretch",margin:"0 0 18px"}}>
+            <span style={{width:3.5,borderRadius:2,background:T.blue,transformOrigin:"top",animation:"wpBarIn 0.45s ease-out both",flexShrink:0}}/>
+            <span style={{position:"relative",overflow:"hidden",borderRadius:6,padding:"2px 6px 2px 2px",fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6,animation:"wpSlideIn 0.5s 0.1s ease-out both"}}>
+              {narrative}
+              <span style={{position:"absolute",top:0,bottom:0,left:0,width:"45%",background:`linear-gradient(105deg,transparent,${T.blue}44,transparent)`,transform:"translateX(-110%)",animation:"wpSheen 1.4s ease-in-out 0.4s 2",pointerEvents:"none"}}/>
+            </span>
+          </div>
+        );
       })()}
 
       {/* Annual target — moved here from the dashboard (Sales owns planning/review) */}
@@ -2107,7 +2111,10 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
       {showForm&&(
         <div style={{...card,marginBottom:16,borderColor:T.blue,padding:0,overflow:"hidden"}}>
           <div style={{background:T.blueL,padding:isMobile?"14px 16px":"16px 20px",borderBottom:`1px solid ${T.border}`}}>
-            <div style={{fontSize:isMobile?15:17,fontWeight:800,color:T.blueDark,marginBottom:4}}>Enter monthly sales</div>
+            <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:4}}>
+              <div style={{fontSize:isMobile?15:17,fontWeight:800,color:T.blueDark}}>Enter monthly sales</div>
+              <button onClick={()=>{setShowForm(false);setFMonth("");setFL1("");setFL2("");setParsedMix(null);setParseMsg(null);}} aria-label="Close" title="Close" style={{marginLeft:"auto",background:"none",border:"none",fontSize:22,color:T.muted,cursor:"pointer",lineHeight:1,padding:0}}>×</button>
+            </div>
             <div style={{fontSize:12.5,color:T.slate,lineHeight:1.6}}>Type each location’s <strong>total sales $</strong> for the month by hand. Then download the Excel template, fill in your bowl counts from the POS product report, and upload it — the counts do the rest. Other revenue (drinks, add-ons, extras) is worked out for you as total sales minus bowl revenue.</div>
             <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1.2fr 1fr 1fr",gap:10,marginTop:14}}>
               <div>
@@ -2591,7 +2598,7 @@ function Scan({T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan,okS
 }
 
 // ─── INSIGHTS ────────────────────────────────────────────────────────────────
-function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,insightsDate,loadingInsights,generateInsights,insightChat,chatInput,setChatInput,chatLoading,sendChat}){
+function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,insightsDate,loadingInsights,insightsStale,generateInsights,insightChat,chatInput,setChatInput,chatLoading,sendChat}){
   const [iView,setIView]=useState("cards");
   return(
     <div>
@@ -2600,7 +2607,15 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,insightsDate,
           <TabHead T={T} isMobile={isMobile} pre="What the data " em="says." color="#8B5CF6" sub="AI Insights" style={{marginBottom:4}}/>
           <p style={{margin:0,fontSize:isMobile?13:14,color:T.muted}}>Generated from your real data — specific numbers, specific recommendations</p>
         </div>
-        {aiInsights&&<button onClick={generateInsights} disabled={loadingInsights} style={{background:T.blue,color:"#fff",border:"none",borderRadius:20,padding:"10px 20px",fontSize:14,fontWeight:700,cursor:loadingInsights?"not-allowed":"pointer",opacity:loadingInsights?0.7:1}}>✦ Regenerate</button>}
+        {aiInsights&&(
+          <div style={{textAlign:"right"}}>
+            <button onClick={generateInsights} disabled={loadingInsights} style={{position:"relative",background:T.blue,color:"#fff",border:"none",borderRadius:20,padding:"10px 20px",fontSize:14,fontWeight:700,cursor:loadingInsights?"not-allowed":"pointer",opacity:loadingInsights?0.7:1}}>
+              ✦ Regenerate
+              {insightsStale&&<span style={{position:"absolute",top:-3,right:-3,width:10,height:10,borderRadius:"50%",background:T.coral,border:`2px solid ${T.card}`}}/>}
+            </button>
+            {insightsStale&&<div style={{fontSize:11,color:T.coral,fontWeight:600,marginTop:5}}>Your data has changed since these were generated</div>}
+          </div>
+        )}
       </div>
 
       {!aiInsights&&!loadingInsights&&(
