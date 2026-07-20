@@ -12,7 +12,7 @@ begin
     raise exception 'Not authorized';
   end if;
   return query
-    select s.id, u.email::text, s.created_at, s.refreshed_at, s.user_agent
+    select s.id::uuid, u.email::text, s.created_at::timestamptz, s.refreshed_at::timestamptz, s.user_agent::text
     from auth.sessions s
     join auth.users u on u.id = s.user_id
     order by coalesce(s.refreshed_at, s.created_at) desc;
