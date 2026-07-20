@@ -804,12 +804,13 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
       {/* Location comparison (wider) + What to push side by side on desktop; stacked on mobile */}
       <div style={{display:"grid",gridTemplateColumns:isDesktop&&loc==="all"?"1fr 1fr":"1fr",gap:isMobile?12:16,marginBottom:isMobile?12:16,alignItems:"stretch"}}>
         {loc==="all"&&latMon&&(
-          <div style={card}>
+          <div style={{...card,display:"flex",flexDirection:"column"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
               <div style={{fontSize:isMobile?15:17,fontWeight:700}}>Location comparison</div>
               <div style={{fontSize:12,color:T.muted}}>{latMon}</div>
             </div>
             <div style={{fontSize:12,color:T.muted,marginBottom:14}}>Bowl food cost as share of bowl sales · target 30%</div>
+            <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"space-evenly"}}>
             {["loc1","loc2"].map((l,i)=>{
               const lr=cRev(latMon,l),lbr=cBowlRev(latMon,l),lc=cCOGS(latMon,l),lp=lbr?(lc/lbr)*100:0,delta=lp-30;
               return(
@@ -830,6 +831,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
                 </div>
               );
             })}
+            </div>
             {(()=>{
               const l1p=cRev(latMon,"loc1")?(cCOGS(latMon,"loc1")/cRev(latMon,"loc1")*100):0;
               const l2p=cRev(latMon,"loc2")?(cCOGS(latMon,"loc2")/cRev(latMon,"loc2")*100):0;
@@ -890,13 +892,13 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
           })()}
         </div>
 
-        <div style={card}>
+        <div style={{...card,display:"flex",flexDirection:"column"}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
             <div style={{fontSize:isMobile?15:17,fontWeight:800}}>🛒 Buy it today</div>
             <Tag c={T.teal} bg={T.tealL} sm>FREE SEARCH</Tag>
           </div>
           <div style={{fontSize:12,color:T.muted,marginBottom:12,lineHeight:1.6}}>Run out of something? Pick the ingredient and location — this opens a Google "best price today near me" search in a new tab. Free, nothing stored. Tip: set a search term with pack size (e.g. "Kikkoman soy sauce 1L") on the ingredient in Menu → Ingredients for sharper results.</div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginTop:"auto"}}>
             <select value={buyIng} onChange={e=>setBuyIng(e.target.value)} style={{flex:"1 1 200px",background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"9px 12px",color:T.navy,fontSize:13,outline:"none"}}>
               <option value="">Pick an ingredient…</option>
               {allIngNames.map(n=><option key={n} value={n}>{searchTerms[n]?`${n} — “${searchTerms[n]}”`:n}</option>)}
