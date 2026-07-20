@@ -21,6 +21,7 @@
 - **Dashboard simplification + annual target (2026-07-20):** Monthly KPI row removed; YTD cards promoted to hero size; new year-target card (inline entry, saved to settings key `target_<year>`) with progress bar + even-pace marker + ahead/behind readout. src/App.jsx. Also: YTD cards now respect the location selector (splits only on All). Committed & pushed 2026-07-20 (second batch); not yet visually verified by user.
 
 ## Next
-- User to verify on the deployed site: target card entry/persistence, YTD location filtering, simplified layout (YTD strip, quick-win cards, Sales default month, UI state persistence).
+- 2026-07-20 dashboard batches (both) deployed and user-verified. Nothing in flight.
+- Reminder for user: July 2026 still has no bowl counts entered, so food cost/profit read $0 until the July mix is uploaded on the Sales tab. (YTD strip, quick-win cards, Sales default month, UI state persistence).
 - Untracked, deliberately not committed: add-missing-menu-items.sql (Supabase SQL runs in dashboard per standing rule), package-lock.json (recommend committing to pin deps for Vercel — needs user OK).
 - Open question for user: July 2026 sales has a $210 total but no bowl counts entered, so food cost/gross profit show $0 — they need to enter July's bowl mix on the Sales tab.
