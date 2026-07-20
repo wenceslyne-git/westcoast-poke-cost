@@ -105,6 +105,8 @@ export default function App(){
         if(!cancelled)setData(d);
         const mk=await loadMarketChecks();
         if(!cancelled)setMarket(mk);
+        const tgt=await loadSetting(`target_${new Date().getFullYear()}`,null);
+        if(!cancelled)setYearTarget(typeof tgt==="number"&&tgt>0?tgt:null);
         if(!cancelled)await refreshCaps();
       }catch(e){console.error("DB load failed",e);}
       if(!cancelled)setDbLoading(false);
@@ -113,6 +115,14 @@ export default function App(){
   },[session]);
 
   const [data,setData]=useState(DATA);
+  const [yearTarget,setYearTarget]=useState(null);
+  const saveYearTarget=async v=>{
+    const n=Number(v);
+    if(!n||n<=0){say("Enter a target above zero",true);return;}
+    setYearTarget(n);
+    try{await saveSetting(`target_${new Date().getFullYear()}`,n);say("Year target saved");}
+    catch(e){console.error(e);say("Couldn't save target",true);}
+  };
   const [tab,setTab]=useState(()=>{try{const t=localStorage.getItem("wp_tab");return["dashboard","sales","scan","suppliers","menu","insights"].includes(t)?t:"dashboard";}catch{return "dashboard";}});
   const [loc,setLoc]=useState(()=>{try{const l=localStorage.getItem("wp_loc");return["all","loc1","loc2"].includes(l)?l:"all";}catch{return "all";}});
   useEffect(()=>{try{localStorage.setItem("wp_tab",tab);localStorage.setItem("wp_loc",loc);}catch{}},[tab,loc]);
@@ -543,7 +553,7 @@ export default function App(){
         </div>
         <div style={{flex:1,minWidth:0,height:"100%",overflowY:"auto"}}>
       <div style={{padding:isMobile?"16px":"28px 32px",maxWidth:MAXW,margin:"0 auto"}}>
-        {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,ytd,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market,onRefreshLive:refreshLivePrices,liveBusy:chkAll}}/>}
+        {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,ytd,yearTarget,saveYearTarget,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market,onRefreshLive:refreshLivePrices,liveBusy:chkAll}}/>}
         {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedPrice,priceFor,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,market}}/>}
         {tab==="suppliers"&&<Suppliers {...{T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,reload}}/>}
         {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,cBowlRev,cOtherRev,bowlUnits,bowlUnitsTotal,sizeAgg,totalBowls,costSz,isBowl,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,bFCP,bMargin,months,say,onSaveSales:async(month,l1,l2,mix)=>{
@@ -565,8 +575,9 @@ export default function App(){
 }
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
-function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,ytd,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market={},onRefreshLive,liveBusy}){
+function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,ytd,yearTarget,saveYearTarget,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market={},onRefreshLive,liveBusy}){
   const h=headline;
+  const [tgtEdit,setTgtEdit]=useState(null);
   return(
     <div>
       <div style={{marginBottom:isMobile?16:24}}>
@@ -581,40 +592,68 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
         </div>
       </div>
 
-      <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:8}}>This month · {latMon||"—"}</div>
-      <div style={{display:"grid",gridTemplateColumns:isDesktop?"repeat(4,1fr)":"repeat(2,1fr)",gap:isMobile?10:14,marginBottom:isMobile?14:20}}>
-        {[
-          {lb:"Total Sales",v:fmtK2(rev),sub:latMon||"—",delta:hasData?revDelta:undefined,col:T.blue,bg:T.blueL},
-          {lb:"Bowl Food Cost",v:fmtK2(cogs),sub:`${fcp.toFixed(1)}% of bowl sales`,tag:"excl. add-ons · coming soon",delta:hasData&&fcpDelta?fcpDelta:undefined,deltaInvert:true,col:fcp>30?T.coral:T.amber,bg:fcp>30?T.coralL:T.amberL},
-          {lb:"Bowl Gross Profit",v:fmtK2(gp),sub:`${(100-fcp).toFixed(1)}% margin · ${bowlsSold} bowls`,col:T.teal,bg:T.tealL},
-          {lb:"Other Revenue",v:fmtK2(otherRev),sub:`${rev?((otherRev/rev)*100).toFixed(0):0}% of sales · drinks, add-ons`,col:T.blue,bg:T.blueL},
-        ].map((k,i)=>(
-          <div key={i} style={{background:k.bg,border:`1px solid ${T.border}`,borderRadius:isMobile?12:16,padding:isMobile?"14px 16px":"18px 22px"}}>
-            <div style={{fontSize:10,color:T.inkL,textTransform:"uppercase",letterSpacing:"1px",fontWeight:700,marginBottom:8}}>{k.lb}</div>
-            <div style={{fontSize:isMobile?22:30,fontWeight:900,color:k.col,letterSpacing:"-0.5px",lineHeight:1}}>{k.v}</div>
-            <div style={{display:"flex",alignItems:"center",gap:6,marginTop:6,flexWrap:"wrap"}}>
-              <span style={{fontSize:isMobile?11:12,color:T.inkL}}>{k.sub}</span>
-              {k.delta!==undefined&&<span style={{fontSize:11,fontWeight:700,color:(k.deltaInvert?k.delta<0:k.delta>0)?T.teal:T.coral}}>{k.delta>0?"↑":"↓"}{Math.abs(k.delta).toFixed(1)}{k.deltaInvert?"pts":"%"}</span>}
+      {(()=>{
+        const yr=ytd?ytd.year:String(new Date().getFullYear());
+        const ytdSales=ytd?ytd.sales.all:0;
+        const now=new Date();
+        const yearFrac=(now-new Date(now.getFullYear(),0,1))/(new Date(now.getFullYear()+1,0,1)-new Date(now.getFullYear(),0,1));
+        const pace=yearTarget?yearTarget*yearFrac:0;
+        const pct=yearTarget?Math.min((ytdSales/yearTarget)*100,100):0;
+        const diff=ytdSales-pace;
+        return(
+          <div style={{...card,marginBottom:isMobile?14:20}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:4}}>
+              <div style={{fontSize:isMobile?15:17,fontWeight:700}}>{yr} target</div>
+              {yearTarget?(
+                tgtEdit===null
+                  ?<button onClick={()=>setTgtEdit(String(yearTarget))} style={{marginLeft:"auto",background:"transparent",border:`1px solid ${T.border}`,borderRadius:16,color:T.slate,padding:"4px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Edit target</button>
+                  :null
+              ):null}
             </div>
-            {k.tag&&<div style={{marginTop:6,fontSize:9.5,fontWeight:700,color:T.muted,background:T.card,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",display:"inline-block"}}>{k.tag}</div>}
+            {(!yearTarget||tgtEdit!==null)?(
+              <div>
+                <div style={{fontSize:12,color:T.muted,marginBottom:10,lineHeight:1.6}}>Set your total sales target for {yr} (both locations combined) to track pace against it all year.</div>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <span style={{fontSize:15,fontWeight:700,color:T.slate}}>$</span>
+                  <input type="number" min="1" placeholder="e.g. 250000" value={tgtEdit??""} onChange={e=>setTgtEdit(e.target.value)} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,color:T.ink,padding:"8px 12px",fontSize:14,width:140}}/>
+                  <button onClick={()=>{saveYearTarget(tgtEdit);setTgtEdit(null);}} style={{background:T.blue,color:"#fff",border:"none",borderRadius:16,padding:"8px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Save target</button>
+                  {yearTarget&&<button onClick={()=>setTgtEdit(null)} style={{background:"transparent",border:"none",color:T.muted,fontSize:13,cursor:"pointer"}}>Cancel</button>}
+                </div>
+              </div>
+            ):(
+              <div>
+                <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",marginBottom:10}}>
+                  <span style={{fontSize:isMobile?24:30,fontWeight:900,color:T.blue,letterSpacing:"-0.5px"}}>{fmtK2(ytdSales)}</span>
+                  <span style={{fontSize:isMobile?13:15,color:T.muted}}>of {fmtK2(yearTarget)} · {(yearTarget?(ytdSales/yearTarget)*100:0).toFixed(1)}%</span>
+                </div>
+                <div style={{position:"relative",height:12,background:T.border,borderRadius:6,marginBottom:6}}>
+                  <div style={{position:"absolute",height:"100%",width:`${pct}%`,background:diff>=0?T.teal:T.blue,borderRadius:6}}/>
+                  <div style={{position:"absolute",left:`${Math.min(yearFrac*100,100)}%`,top:-3,width:2,height:18,background:T.ink,opacity:0.55}} title="Where you should be today at an even pace"/>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
+                  <span style={{fontSize:12,fontWeight:700,color:diff>=0?T.teal:T.coral}}>{diff>=0?`Ahead of pace by ${fmtK2(diff)}`:`Behind pace by ${fmtK2(-diff)}`}</span>
+                  <span style={{fontSize:11,color:T.muted}}>Pace marker = even spend of the year to date ({fmtK2(pace)})</span>
+                </div>
+              </div>
+            )}
           </div>
-        ))}
-      </div>
+        );
+      })()}
 
       {ytd&&(
         <div style={{marginBottom:isMobile?14:20}}>
-          <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:8}}>Year to date · {ytd.year}</div>
-          <div style={{display:"grid",gridTemplateColumns:isDesktop?"repeat(4,1fr)":"repeat(2,1fr)",gap:isMobile?8:12}}>
-            {[
-              {lb:"YTD Sales",v:fmtK2(ytd.sales.all),split:`${data.locations.loc1} ${fmtK2(ytd.sales.loc1)} · ${data.locations.loc2} ${fmtK2(ytd.sales.loc2)}`,col:T.blue},
-              {lb:"YTD Food Cost",v:fmtK2(ytd.cogs.all),extra:`${ytd.fcp.all.toFixed(1)}%`,split:`${data.locations.loc1} ${ytd.fcp.loc1.toFixed(1)}% · ${data.locations.loc2} ${ytd.fcp.loc2.toFixed(1)}%`,col:ytd.fcp.all>30?T.coral:T.amber},
-              {lb:"YTD Gross Profit",v:fmtK2(ytd.gp.all),split:`${data.locations.loc1} ${fmtK2(ytd.gp.loc1)} · ${data.locations.loc2} ${fmtK2(ytd.gp.loc2)}`,col:T.teal},
-              {lb:"YTD Other Revenue",v:fmtK2(ytd.other.all),split:`${data.locations.loc1} ${fmtK2(ytd.other.loc1)} · ${data.locations.loc2} ${fmtK2(ytd.other.loc2)}`,col:T.blue},
-            ].map((k,i)=>(
-              <div key={i} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:isMobile?10:12,padding:isMobile?"10px 12px":"12px 16px"}}>
-                <div style={{fontSize:9.5,color:T.inkL,textTransform:"uppercase",letterSpacing:"0.8px",fontWeight:700,marginBottom:6}}>{k.lb}</div>
-                <div style={{fontSize:isMobile?16:19,fontWeight:800,color:k.col,letterSpacing:"-0.3px",lineHeight:1}}>{k.v}{k.extra&&<span style={{fontSize:11,fontWeight:600,color:T.inkL,marginLeft:6}}>{k.extra}</span>}</div>
-                <div style={{fontSize:isMobile?10:11,color:T.muted,marginTop:6,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{k.split}</div>
+          <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:8}}>Year to date · {ytd.year} · {locName(loc)}</div>
+          <div style={{display:"grid",gridTemplateColumns:isDesktop?"repeat(4,1fr)":"repeat(2,1fr)",gap:isMobile?10:14}}>
+            {(()=>{const l=loc==="all"?"all":loc;const split=k=>loc==="all"?k:null;return[
+              {lb:"YTD Sales",v:fmtK2(ytd.sales[l]),split:split(`${data.locations.loc1} ${fmtK2(ytd.sales.loc1)} · ${data.locations.loc2} ${fmtK2(ytd.sales.loc2)}`),col:T.blue,bg:T.blueL},
+              {lb:"YTD Food Cost",v:fmtK2(ytd.cogs[l]),extra:`${ytd.fcp[l].toFixed(1)}%`,split:split(`${data.locations.loc1} ${ytd.fcp.loc1.toFixed(1)}% · ${data.locations.loc2} ${ytd.fcp.loc2.toFixed(1)}%`),col:ytd.fcp[l]>30?T.coral:T.amber,bg:ytd.fcp[l]>30?T.coralL:T.amberL},
+              {lb:"YTD Gross Profit",v:fmtK2(ytd.gp[l]),split:split(`${data.locations.loc1} ${fmtK2(ytd.gp.loc1)} · ${data.locations.loc2} ${fmtK2(ytd.gp.loc2)}`),col:T.teal,bg:T.tealL},
+              {lb:"YTD Other Revenue",v:fmtK2(ytd.other[l]),split:split(`${data.locations.loc1} ${fmtK2(ytd.other.loc1)} · ${data.locations.loc2} ${fmtK2(ytd.other.loc2)}`),col:T.blue,bg:T.blueL},
+            ];})().map((k,i)=>(
+              <div key={i} style={{background:k.bg,border:`1px solid ${T.border}`,borderRadius:isMobile?12:16,padding:isMobile?"14px 16px":"18px 22px"}}>
+                <div style={{fontSize:10,color:T.inkL,textTransform:"uppercase",letterSpacing:"1px",fontWeight:700,marginBottom:8}}>{k.lb}</div>
+                <div style={{fontSize:isMobile?22:30,fontWeight:900,color:k.col,letterSpacing:"-0.5px",lineHeight:1}}>{k.v}{k.extra&&<span style={{fontSize:13,fontWeight:600,color:T.inkL,marginLeft:6}}>{k.extra}</span>}</div>
+                {k.split&&<div style={{fontSize:isMobile?11:12,color:T.muted,marginTop:6,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{k.split}</div>}
               </div>
             ))}
           </div>

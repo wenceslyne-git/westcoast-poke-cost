@@ -1,5 +1,16 @@
 # Change list
 
+## 5. Dashboard simplification + annual target (built 2026-07-20, uncommitted)
+- Removed the monthly KPI card row (monthly detail lives in the Sales tab).
+- YTD row promoted to hero-size cards (was small tiles), location splits kept.
+- New "<year> target" card above the YTD row: owner enters annual sales target
+  (stored via saveSetting key `target_<year>` in the existing Supabase settings
+  table); progress bar of YTD sales vs target with an even-pace day-of-year
+  marker and ahead/behind-pace readout. Editable inline. Target/progress always
+  covers both locations combined.
+- YTD cards now respect the location selector (single-location values when
+  L1/L2 selected; split line shown only on All Locations).
+
 All 3 items below: approved and BUILT 2026-07-20 (local only, not committed/pushed). Awaiting user visual test behind login.
 
 ## 1. Dashboard: year-to-date strip
