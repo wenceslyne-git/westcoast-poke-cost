@@ -841,7 +841,9 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
           </div>
         )}
 
-        <div style={{...card,border:`1.5px solid ${T.blue}66`,gridColumn:"1 / -1",order:2}}>
+        {/* Row 2: Best price today + Buy it today, equal width and height */}
+        <div style={{gridColumn:"1 / -1",order:2,display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",gap:isMobile?12:16,alignItems:"stretch"}}>
+        <div style={{...card,border:`1.5px solid ${T.blue}66`}}>
           <div style={{fontSize:9.5,fontWeight:800,color:T.blue,background:T.blueL,border:`1px solid ${T.blue}44`,borderRadius:20,padding:"3px 10px",display:"inline-block",letterSpacing:"0.8px",marginBottom:8}}>⚡ QUICK WIN</div>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2,flexWrap:"wrap"}}>
             <div style={{fontSize:isMobile?18:21,fontWeight:800,letterSpacing:"-0.3px"}}>💰 Best price today</div>
@@ -888,6 +890,27 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
           })()}
         </div>
 
+        <div style={card}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+            <div style={{fontSize:isMobile?15:17,fontWeight:800}}>🛒 Buy it today</div>
+            <Tag c={T.teal} bg={T.tealL} sm>FREE SEARCH</Tag>
+          </div>
+          <div style={{fontSize:12,color:T.muted,marginBottom:12,lineHeight:1.6}}>Run out of something? Pick the ingredient and location — this opens a Google "best price today near me" search in a new tab. Free, nothing stored. Tip: set a search term with pack size (e.g. "Kikkoman soy sauce 1L") on the ingredient in Menu → Ingredients for sharper results.</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+            <select value={buyIng} onChange={e=>setBuyIng(e.target.value)} style={{flex:"1 1 200px",background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"9px 12px",color:T.navy,fontSize:13,outline:"none"}}>
+              <option value="">Pick an ingredient…</option>
+              {allIngNames.map(n=><option key={n} value={n}>{searchTerms[n]?`${n} — “${searchTerms[n]}”`:n}</option>)}
+            </select>
+            <div style={{display:"flex",gap:2,background:T.bg,border:`1px solid ${T.border}`,borderRadius:14,padding:2}}>
+              {[["loc1",data.locations.loc1],["loc2",data.locations.loc2]].map(([id,lb])=>(
+                <button key={id} onClick={()=>setBuyLoc(id)} style={{background:buyLoc===id?T.blue:"transparent",color:buyLoc===id?"#fff":T.slate,border:"none",borderRadius:12,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{lb}</button>
+              ))}
+            </div>
+            <button onClick={buySearch} disabled={!buyIng} style={{background:buyIng?T.teal:T.bg,color:buyIng?"#fff":T.muted,border:"none",borderRadius:16,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:buyIng?"pointer":"not-allowed"}}>Search Google ↗</button>
+          </div>
+        </div>
+        </div>
+
         <div style={{...card,border:`1.5px solid ${T.teal}66`}}>
           <div style={{fontSize:9.5,fontWeight:800,color:T.teal,background:T.tealL,border:`1px solid ${T.teal}44`,borderRadius:20,padding:"3px 10px",display:"inline-block",letterSpacing:"0.8px",marginBottom:8}}>⚡ QUICK WIN</div>
           <div style={{fontSize:isMobile?18:21,fontWeight:800,letterSpacing:"-0.3px",marginBottom:2}}>🔥 What to push</div>
@@ -909,27 +932,6 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
               </div>
             </div>
           ))}
-        </div>
-      </div>
-
-      {/* Item 6b: free Google "buy it today" search — no API, no cost */}
-      <div style={{...card,marginBottom:isMobile?12:16}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
-          <div style={{fontSize:isMobile?15:17,fontWeight:800}}>🛒 Buy it today</div>
-          <Tag c={T.teal} bg={T.tealL} sm>FREE SEARCH</Tag>
-        </div>
-        <div style={{fontSize:12,color:T.muted,marginBottom:12,lineHeight:1.6}}>Run out of something? Pick the ingredient and location — this opens a Google "best price today near me" search in a new tab. Free, nothing stored. Tip: set a search term with pack size (e.g. "Kikkoman soy sauce 1L") on the ingredient in Menu → Ingredients for sharper results.</div>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-          <select value={buyIng} onChange={e=>setBuyIng(e.target.value)} style={{flex:"1 1 200px",background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"9px 12px",color:T.navy,fontSize:13,outline:"none"}}>
-            <option value="">Pick an ingredient…</option>
-            {allIngNames.map(n=><option key={n} value={n}>{searchTerms[n]?`${n} — “${searchTerms[n]}”`:n}</option>)}
-          </select>
-          <div style={{display:"flex",gap:2,background:T.bg,border:`1px solid ${T.border}`,borderRadius:14,padding:2}}>
-            {[["loc1",data.locations.loc1],["loc2",data.locations.loc2]].map(([id,lb])=>(
-              <button key={id} onClick={()=>setBuyLoc(id)} style={{background:buyLoc===id?T.blue:"transparent",color:buyLoc===id?"#fff":T.slate,border:"none",borderRadius:12,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{lb}</button>
-            ))}
-          </div>
-          <button onClick={buySearch} disabled={!buyIng} style={{background:buyIng?T.teal:T.bg,color:buyIng?"#fff":T.muted,border:"none",borderRadius:16,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:buyIng?"pointer":"not-allowed"}}>Search Google ↗</button>
         </div>
       </div>
 
