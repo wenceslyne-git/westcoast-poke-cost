@@ -296,8 +296,10 @@ export default function App(){
 
   const actions=[
     {icon:"📷",title:"Scan a new receipt",body:"Snap a supplier invoice and AI auto-extracts line items and updates your cost database.",cta:"Open scanner",fn:()=>setTab("scan"),color:T.blue},
-    biggestMover&&biggestMover.ch>10?{icon:"🔺",title:`Renegotiate ${biggestMover.n}`,body:`Up ${biggestMover.ch.toFixed(1)}% since tracking began. Check the market to see if alternate suppliers could save money.`,cta:"Check prices",fn:()=>{setSelIng(biggestMover.n);setTab("menu");},color:T.coral}:null,
-    worstBowl&&worstBowl.fcp>30?{icon:"💡",title:`Review ${worstBowl.n} pricing`,body:`Food cost is ${worstBowl.fcp.toFixed(1)}% on this bowl — above the 30% target. A modest price increase would recover margin.`,cta:"View menu costs",fn:()=>setTab("sales"),color:T.amber}:null,
+    biggestMover&&biggestMover.ch>10?{icon:"🔺",title:`Renegotiate ${biggestMover.n}`,body:`Up ${biggestMover.ch.toFixed(1)}% since tracking began. Check the market to see if alternate suppliers could save money.`,cta:"Check prices",fn:()=>{setSelIng(biggestMover.n);setTab("menu");},color:T.coral}
+      :{icon:"🔺",title:"Renegotiate rising prices",body:"When an ingredient climbs more than 10% in your recorded costs, it's flagged here so you can shop it around.",cta:null,color:T.coral,ghost:true},
+    worstBowl&&worstBowl.fcp>30?{icon:"💡",title:`Review ${worstBowl.n} pricing`,body:`Food cost is ${worstBowl.fcp.toFixed(1)}% on this bowl — above the 30% target. A modest price increase would recover margin.`,cta:"View menu costs",fn:()=>setTab("sales"),color:T.amber}
+      :{icon:"💡",title:"Review bowl pricing",body:"Any bowl whose food cost passes the 30% target shows up here with a suggested fix.",cta:null,color:T.amber,ghost:true},
   ].filter(Boolean);
 
   // ── scan ──
@@ -569,13 +571,10 @@ export default function App(){
     return (data.receipts||[]).filter(fp=>String(fp.split("|")[1]||"").slice(0,7)===pre).length;
   })();
 
-  // Yearly target: full celebration the FIRST time YTD crosses it (flag stored in settings)
-  const [celebratedYear,setCelebratedYear]=useState(true); // assume celebrated until the flag loads
-  useEffect(()=>{
-    if(!session||!isOwner(session.user?.email))return;
-    (async()=>{try{setCelebratedYear(!!await loadSetting(`celebrated_${new Date().getFullYear()}`,false));}catch(e){}})();
-  },[session]);
+  // Yearly target: grand celebration replays on EVERY crossing (user decision 2026-07-20 — no stored
+  // once-per-year flag). Fires when YTD moves from below to at/above target in-session; not on page load.
   const targetReached=yearTarget&&ytd&&ytd.sales.all>=yearTarget;
+  const prevReachedRef=useRef(null); // null until first render settles, so loading-in above target doesn't fire
   // Bell items self-clear: computed fresh each render from live data (item 16)
   const bellItems=[
     sampleDue&&trackedIngredients.length>0?{icon:"⏰",text:`Market sample due (${sampleDue.label}) — ${trackedIngredients.length} tracked ingredient${trackedIngredients.length!==1?"s":""}`,action:"Run sample",fn:()=>{setBellOpen(false);armPaid({label:`Market sample · ${sampleDue.label}`,secs:10,lastAt:Object.values(marketSamples).sort().pop()||null,fn:runMarketSample});}}:null,
@@ -586,12 +585,12 @@ export default function App(){
   ].filter(Boolean);
 
   useEffect(()=>{
-    if(targetReached&&!celebratedYear){
-      setCelebratedYear(true);
+    const now=!!targetReached;
+    if(prevReachedRef.current===false&&now){
       setCelebrate({type:"grand",msg:`You did it — ${fmtK(yearTarget)} for ${new Date().getFullYear()}!`});
-      saveSetting(`celebrated_${new Date().getFullYear()}`,true).catch(()=>{});
     }
-  },[targetReached,celebratedYear]);
+    prevReachedRef.current=now;
+  },[targetReached]);
 
   // ── AI insights ──
   const buildDataSummary=()=>JSON.stringify({
@@ -964,7 +963,12 @@ function HealthRing({T,score,hint,parts={},isMobile}){
       <svg viewBox="0 0 100 100" style={{width:sz,height:sz,flexShrink:0}} role="img" aria-label={`Data health ${score} of 100`}>
         {rings.map(g=>{
           const C=2*Math.PI*g.r;
-          return g.frac>0.005&&<circle key={g.lb} cx="50" cy="50" r={g.r} fill="none" stroke={g.col} strokeWidth="11" strokeLinecap="round" strokeDasharray={`${Math.min(g.frac,1)*C} ${C}`} transform="rotate(-90 50 50)"/>;
+          return(
+            <g key={g.lb}>
+              <circle cx="50" cy="50" r={g.r} fill="none" stroke={g.col} strokeOpacity="0.12" strokeWidth="11"/>
+              {g.frac>0.005&&<circle cx="50" cy="50" r={g.r} fill="none" stroke={g.col} strokeWidth="11" strokeLinecap="round" strokeDasharray={`${Math.min(g.frac,1)*C} ${C}`} transform="rotate(-90 50 50)"/>}
+            </g>
+          );
         })}
       </svg>
       <div style={{display:"flex",flexDirection:"column",justifyContent:"center",lineHeight:1.85}}>
@@ -1021,6 +1025,20 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
       </div>
 
       {/* Current-month strip — the annual target and year view live on the Sales tab */}
+      {!latMon&&(
+        <div style={{marginBottom:isMobile?14:20}}>
+          <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:8}}>This month</div>
+          <div style={{display:"grid",gridTemplateColumns:isDesktop?"repeat(4,minmax(0,1fr))":"repeat(2,minmax(0,1fr))",gap:isMobile?10:14}}>
+            {["Sales","Bowl Food Cost","Bowl Gross Profit","Other Revenue"].map(lb=>(
+              <div key={lb} style={{background:T.bg,border:`1px dashed ${T.border}`,borderRadius:isMobile?12:isDesktop?10:16,padding:isMobile?"14px 16px":isDesktop?"9px 14px":"18px 22px"}}>
+                <div style={{fontSize:isDesktop?11:10,color:T.muted,textTransform:"uppercase",letterSpacing:"1px",fontWeight:700,marginBottom:isDesktop?3:8}}>{lb}</div>
+                <div style={{fontSize:isMobile?22:isDesktop?18:30,fontWeight:900,color:T.muted,letterSpacing:"-0.5px",lineHeight:1}}>$0.00</div>
+              </div>
+            ))}
+          </div>
+          <div style={{fontSize:10.5,color:T.muted,marginTop:6}}>No month entered yet — these fill in as soon as you enter a month's sales on the Sales tab</div>
+        </div>
+      )}
       {latMon&&(
         <div style={{marginBottom:isMobile?14:20}}>
           <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:8}}>This month</div>
@@ -1048,6 +1066,19 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
 
       {/* Location comparison (wider) + What to push side by side on desktop; stacked on mobile */}
       <div style={{display:"grid",gridTemplateColumns:isDesktop&&loc==="all"?"repeat(2,minmax(0,1fr))":"minmax(0,1fr)",gap:isMobile?12:16,marginBottom:isMobile?12:16,alignItems:"stretch"}}>
+        {loc==="all"&&!latMon&&(
+          <div style={{...card,border:`1.5px dashed ${T.border}`,display:"flex",flexDirection:"column",order:1}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
+              <div style={{fontSize:isMobile?15:17,fontWeight:700,color:T.muted}}>Location comparison</div>
+            </div>
+            <div style={{fontSize:12,color:T.muted,marginBottom:14}}>How much of every bowl dollar goes to ingredients · target 30¢</div>
+            <div style={{textAlign:"center",padding:"24px 12px",color:T.muted,margin:"auto 0"}}>
+              <div style={{fontSize:30,marginBottom:8}}>📍</div>
+              <div style={{fontSize:13,fontWeight:700,color:T.slate,marginBottom:4}}>No month entered yet</div>
+              <div style={{fontSize:12,lineHeight:1.6}}>Enter a month's sales and upload its bowl counts — the two locations get compared here automatically.</div>
+            </div>
+          </div>
+        )}
         {loc==="all"&&latMon&&(
           <div className="wpLift" style={{...card,border:`1.5px solid ${T.blue}66`,display:"flex",flexDirection:"column",order:1}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
@@ -1208,11 +1239,12 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
         {actions.map((a,i)=>{
           const tint=a.color===T.blue?T.blueL:a.color===T.coral?T.coralL:T.amberL;
           return(
-          <div key={i} className="wpLift" style={{...card,background:tint,border:"none"}}>
-            <div style={{fontSize:10,color:a.color,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:800,marginBottom:10}}>{a.icon} ACTION</div>
-            <div style={{fontSize:isMobile?15:18,fontWeight:800,marginBottom:8,lineHeight:1.3}}>{a.title}</div>
-            <div style={{fontSize:isMobile?12:14,color:T.slate,lineHeight:1.6,marginBottom:16}}>{a.body}</div>
-            <button onClick={a.fn} style={{background:a.color,color:"#fff",border:"none",borderRadius:20,padding:"8px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>{a.cta} →</button>
+          <div key={i} className={a.ghost?undefined:"wpLift"} style={a.ghost?{...card,background:T.bg,border:`1.5px dashed ${T.border}`}:{...card,background:tint,border:"none"}}>
+            <div style={{fontSize:10,color:a.ghost?T.muted:a.color,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:800,marginBottom:10}}>{a.icon} ACTION</div>
+            <div style={{fontSize:isMobile?15:18,fontWeight:800,marginBottom:8,lineHeight:1.3,color:a.ghost?T.muted:undefined}}>{a.title}</div>
+            <div style={{fontSize:isMobile?12:14,color:a.ghost?T.muted:T.slate,lineHeight:1.6,marginBottom:16}}>{a.body}</div>
+            {a.cta?<button onClick={a.fn} style={{background:a.color,color:"#fff",border:"none",borderRadius:20,padding:"8px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>{a.cta} →</button>
+              :<div style={{fontSize:11,color:T.muted,fontWeight:600,marginTop:"auto"}}>Appears automatically as your cost data builds</div>}
           </div>
         );})}
       </div>
@@ -2067,6 +2099,7 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
           if(!months.length)return "Enter this month's sales and watch this space.";
           const last=months[months.length-1],prev=months[months.length-2];
           const lastTot=cRev(last,"all");
+          if(!lastTot)return `${last} is logged but has no sales yet — enter its sales to see trends here.`;
           if(!prev)return `${last} came in at $${fmt(lastTot)} — your first tracked month. Watch this space.`;
           const prevTot=cRev(prev,"all");
           const chg=prevTot?((lastTot-prevTot)/prevTot)*100:0;
@@ -2390,7 +2423,7 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
                   const paceTip=`Where you should be today at even pace: ${fmtK2(pace)} — you're ${fmtK2(Math.abs(diff))} ${diff>=0?"ahead":"behind"}`;
                   return(
                     <div style={{flex:1,minHeight:0,width:"100%",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                    <svg viewBox="0 0 260 140" style={{width:"100%",height:"100%",minHeight:130,maxHeight:420}} role="img" aria-label={`${(ratio*100).toFixed(1)}% of the ${yr} target of ${fmtK2(yearTarget)}`}>
+                    <svg viewBox="0 0 260 140" style={{width:"100%",height:"100%",minHeight:130,maxHeight:210}} role="img" aria-label={`${(ratio*100).toFixed(1)}% of the ${yr} target of ${fmtK2(yearTarget)}`}>
                       <defs>
                         <linearGradient id="wpGaugeFade" gradientUnits="userSpaceOnUse" x1={CX-R} y1="0" x2={CX+R} y2="0">
                           <stop offset="0%" stopColor={acc} stopOpacity="1"/>
