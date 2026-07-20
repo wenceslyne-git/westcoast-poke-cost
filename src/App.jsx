@@ -801,7 +801,8 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
         </div>
       )}
 
-      <div style={{display:"grid",gridTemplateColumns:isDesktop&&loc==="all"?"1fr 1fr":"1fr",gap:isMobile?12:16,marginBottom:isMobile?12:16}}>
+      {/* Location comparison (wider) + What to push side by side on desktop; stacked on mobile */}
+      <div style={{display:"grid",gridTemplateColumns:isDesktop&&loc==="all"?"1.6fr 1fr":"1fr",gap:isMobile?12:16,marginBottom:isMobile?12:16,alignItems:"stretch"}}>
         {loc==="all"&&latMon&&(
           <div style={card}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
@@ -840,7 +841,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
           </div>
         )}
 
-        <div style={{...card,border:`1.5px solid ${T.blue}66`}}>
+        <div style={{...card,border:`1.5px solid ${T.blue}66`,gridColumn:"1 / -1",order:2}}>
           <div style={{fontSize:9.5,fontWeight:800,color:T.blue,background:T.blueL,border:`1px solid ${T.blue}44`,borderRadius:20,padding:"3px 10px",display:"inline-block",letterSpacing:"0.8px",marginBottom:8}}>⚡ QUICK WIN</div>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2,flexWrap:"wrap"}}>
             <div style={{fontSize:isMobile?18:21,fontWeight:800,letterSpacing:"-0.3px"}}>💰 Best price today</div>
