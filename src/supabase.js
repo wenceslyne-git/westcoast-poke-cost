@@ -11,8 +11,8 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 // EDIT THIS LIST: replace with the real owner email addresses.
 export const OWNER_EMAILS = [
   "wenceslyne@elitelvlservices.com",
-  "sbgomez604@gmail.com",
-  "r_gomez_02@yahoo.com",
+  "sheila@westcoastpoke.com",
+  "richard@westcoastpoke.com",
 ];
 
 export const isOwner = (email) =>
