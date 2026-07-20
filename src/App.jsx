@@ -655,10 +655,10 @@ export default function App(){
       )}
 
       {sampleDue&&trackedIngredients.length>0&&(
-        <div style={{background:T.blueL,borderBottom:`1px solid ${T.blue}33`,padding:isMobile?"8px 14px":"8px 28px",display:"flex",alignItems:"center",gap:10,fontSize:isMobile?12:13,flexShrink:0}}>
-          <span style={{color:T.blue,fontWeight:700}}>Market sample due ({sampleDue.label}):</span>
-          <span style={{color:T.slate,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{trackedIngredients.length} tracked ingredient{trackedIngredients.length!==1?"s":""} × 2 locations</span>
-          <button disabled={sampleBusy} onClick={()=>armPaid({label:`Market sample · ${sampleDue.label}`,secs:10,lastAt:Object.values(marketSamples).sort().pop()||null,fn:runMarketSample})} style={{marginLeft:"auto",background:sampleBusy?T.bg:T.blue,border:"none",borderRadius:20,color:sampleBusy?T.muted:"#fff",padding:"4px 12px",fontSize:12,cursor:sampleBusy?"wait":"pointer",fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>{sampleBusy?"Sampling…":"Run sample"}</button>
+        <div style={{background:T.amberL,borderBottom:`1px solid ${T.amber}44`,padding:isMobile?"8px 14px":"8px 28px",display:"flex",alignItems:"center",gap:10,fontSize:isMobile?12:13,flexShrink:0}}>
+          <span style={{color:T.amber,fontWeight:700}}>⏰ Market sample due ({sampleDue.label}):</span>
+          <span style={{color:T.slate,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{trackedIngredients.length} tracked ingredient{trackedIngredients.length!==1?"s":""} × 2 locations — run it to keep the market trend up to date</span>
+          <button disabled={sampleBusy} onClick={()=>armPaid({label:`Market sample · ${sampleDue.label}`,secs:10,lastAt:Object.values(marketSamples).sort().pop()||null,fn:runMarketSample})} style={{marginLeft:"auto",background:sampleBusy?T.bg:T.amber,border:"none",borderRadius:20,color:sampleBusy?T.muted:"#fff",padding:"4px 12px",fontSize:12,cursor:sampleBusy?"wait":"pointer",fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>{sampleBusy?"Sampling…":"Run sample"}</button>
         </div>
       )}
 
