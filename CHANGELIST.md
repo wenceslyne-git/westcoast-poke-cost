@@ -1,5 +1,10 @@
 # Change list
 
+## 13. Dashboard = act, Sales = review (approved + BUILT 2026-07-20)
+- Annual target card moved from Dashboard to top of Sales tab (YTD strip removed entirely — redundant with Sales' month/quarter/year view).
+- Dashboard now shows a current-month strip (sales, bowl food cost $ + %, bowl gross profit, other revenue) for the latest entered month, location-aware, splits on hover.
+- Also: all side-by-side dashboard cards equal width/height, content fills the space (comparison rows spread, Buy-it-today controls pinned bottom); What to push limited to top 3.
+
 Items 6, 6b, 7, 9, 10, 11, 12: BUILT 2026-07-20 (local only, not committed). Awaiting user visual test behind login.
 Build notes / deviations:
 - Item 6 uses the existing Anthropic web-search endpoint instead of SerpAPI (no SerpAPI key or backend exists; same billing path as the rest of the app). Scheduled 15th/month-end samples surface as a "Market sample due" banner and run only after the user confirms + 10s countdown — the app is client-side only, so nothing can run unattended, and silent spend was ruled out anyway.

@@ -676,7 +676,7 @@ export default function App(){
         {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,ytd,yearTarget,saveYearTarget,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market,searchTerms,volatileIngredients,trackIngredient,onRefreshLive:()=>armPaid({label:"Live price refresh",secs:10,lastAt:(()=>{const all=Object.values(market||{}).flat().map(r=>r.at).sort();return all.pop()||null;})(),fn:refreshLivePrices}),liveBusy:chkAll}}/>}
         {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedPrice,priceFor,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,market,searchTerms,saveSearchTerm}}/>}
         {tab==="suppliers"&&<Suppliers {...{T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,reload,armPaid}}/>}
-        {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,cBowlRev,cOtherRev,bowlUnits,bowlUnitsTotal,sizeAgg,totalBowls,costSz,isBowl,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,bFCP,bMargin,months,say,onSaveSales:async(month,l1,l2,mix)=>{
+        {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,saveYearTarget,cRev,cCOGS,cBowlRev,cOtherRev,bowlUnits,bowlUnitsTotal,sizeAgg,totalBowls,costSz,isBowl,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,bFCP,bMargin,months,say,onSaveSales:async(month,l1,l2,mix)=>{
           const u=JSON.parse(JSON.stringify(data));
           u.sales[month]={loc1:l1,loc2:l2,mix:mix||{}};
           setData(u);
@@ -708,7 +708,6 @@ function Clamp({T,children}){
 
 function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,ytd,yearTarget,saveYearTarget,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market={},searchTerms={},volatileIngredients=[],trackIngredient,onRefreshLive,liveBusy}){
   const h=headline;
-  const [tgtEdit,setTgtEdit]=useState(null);
   const [buyIng,setBuyIng]=useState("");
   const [buyLoc,setBuyLoc]=useState("loc1");
   const allIngNames=[...new Set([...CATALOG.map(c=>c.name),...(data.customIngredients||[]).map(c=>c.name),...Object.keys(data.ingredients)])].sort((a,b)=>a.localeCompare(b));
@@ -732,63 +731,20 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
         </div>
       </div>
 
-      {(()=>{
-        const yr=ytd?ytd.year:String(new Date().getFullYear());
-        const ytdSales=ytd?ytd.sales.all:0;
-        const now=new Date();
-        const yearFrac=(now-new Date(now.getFullYear(),0,1))/(new Date(now.getFullYear()+1,0,1)-new Date(now.getFullYear(),0,1));
-        const pace=yearTarget?yearTarget*yearFrac:0;
-        const pct=yearTarget?Math.min((ytdSales/yearTarget)*100,100):0;
-        const diff=ytdSales-pace;
-        return(
-          <div style={{...card,marginBottom:isMobile?14:20}}>
-            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:4}}>
-              <div style={{fontSize:isMobile?15:17,fontWeight:700}}>{yr} target</div>
-              {yearTarget?(
-                tgtEdit===null
-                  ?<button onClick={()=>setTgtEdit(String(yearTarget))} style={{marginLeft:"auto",background:"transparent",border:`1px solid ${T.border}`,borderRadius:16,color:T.slate,padding:"4px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Edit target</button>
-                  :null
-              ):null}
-            </div>
-            {(!yearTarget||tgtEdit!==null)?(
-              <div>
-                <div style={{fontSize:12,color:T.muted,marginBottom:10,lineHeight:1.6}}>Set your total sales target for {yr} (both locations combined) to track pace against it all year.</div>
-                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                  <span style={{fontSize:15,fontWeight:700,color:T.slate}}>$</span>
-                  <input type="number" min="1" placeholder="e.g. 250000" value={tgtEdit??""} onChange={e=>setTgtEdit(e.target.value)} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,color:T.ink,padding:"8px 12px",fontSize:14,width:140}}/>
-                  <button onClick={()=>{saveYearTarget(tgtEdit);setTgtEdit(null);}} style={{background:T.blue,color:"#fff",border:"none",borderRadius:16,padding:"8px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Save target</button>
-                  {yearTarget&&<button onClick={()=>setTgtEdit(null)} style={{background:"transparent",border:"none",color:T.muted,fontSize:13,cursor:"pointer"}}>Cancel</button>}
-                </div>
-              </div>
-            ):(
-              <div>
-                <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",marginBottom:isDesktop?6:10}}>
-                  <span style={{fontSize:isMobile?24:isDesktop?20:30,fontWeight:900,color:T.blue,letterSpacing:"-0.5px"}}>{fmtK2(ytdSales)}</span>
-                  <span style={{fontSize:isMobile?13:isDesktop?13:15,color:T.muted}}>of {fmtK2(yearTarget)} · {(yearTarget?(ytdSales/yearTarget)*100:0).toFixed(1)}%</span>
-                </div>
-                <div style={{position:"relative",height:isDesktop?6:12,background:T.border,borderRadius:6,marginBottom:6}}>
-                  <div style={{position:"absolute",height:"100%",width:`${pct}%`,background:diff>=0?T.teal:T.blue,borderRadius:6}}/>
-                  <div style={{position:"absolute",left:`${Math.min(yearFrac*100,100)}%`,top:isDesktop?-2:-3,width:2,height:isDesktop?10:18,background:T.ink,opacity:0.55}} title="Where you should be today at an even pace"/>
-                </div>
-                <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
-                  <span style={{fontSize:12,fontWeight:700,color:diff>=0?T.teal:T.coral}}>{diff>=0?`Ahead of pace by ${fmtK2(diff)}`:`Behind pace by ${fmtK2(-diff)}`}</span>
-                  <span style={{fontSize:11,color:T.muted}}>Pace marker = even spend of the year to date ({fmtK2(pace)})</span>
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      {ytd&&(
+      {/* Current-month strip — the annual target and year view live on the Sales tab */}
+      {latMon&&(
         <div style={{marginBottom:isMobile?14:20}}>
-          <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:8}}>Year to date · {ytd.year} · {locName(loc)}</div>
+          <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:8}}>This month · {latMon} · {locName(loc)}</div>
           <div style={{display:"grid",gridTemplateColumns:isDesktop?"repeat(4,minmax(0,1fr))":"repeat(2,minmax(0,1fr))",gap:isMobile?10:14}}>
-            {(()=>{const l=loc==="all"?"all":loc;const split=k=>loc==="all"?k:null;return[
-              {lb:"YTD Sales",v:fmtK2(ytd.sales[l]),split:split(`${data.locations.loc1} ${fmtK2(ytd.sales.loc1)} · ${data.locations.loc2} ${fmtK2(ytd.sales.loc2)}`),col:T.blue,bg:T.blueL},
-              {lb:"YTD Food Cost",v:fmtK2(ytd.cogs[l]),extra:`${ytd.fcp[l].toFixed(1)}%`,split:split(`${data.locations.loc1} ${ytd.fcp.loc1.toFixed(1)}% · ${data.locations.loc2} ${ytd.fcp.loc2.toFixed(1)}%`),col:ytd.fcp[l]>30?T.coral:T.amber,bg:ytd.fcp[l]>30?T.coralL:T.amberL},
-              {lb:"YTD Gross Profit",v:fmtK2(ytd.gp[l]),split:split(`${data.locations.loc1} ${fmtK2(ytd.gp.loc1)} · ${data.locations.loc2} ${fmtK2(ytd.gp.loc2)}`),col:T.teal,bg:T.tealL},
-              {lb:"YTD Other Revenue",v:fmtK2(ytd.other[l]),split:split(`${data.locations.loc1} ${fmtK2(ytd.other.loc1)} · ${data.locations.loc2} ${fmtK2(ytd.other.loc2)}`),col:T.blue,bg:T.blueL},
+            {(()=>{
+              const split=k=>loc==="all"?k:null;
+              const lfcp=l=>{const br=cBowlRev(latMon,l);return br?(cCOGS(latMon,l)/br)*100:0;};
+              const lother=l=>Math.max(0,cRev(latMon,l)-cBowlRev(latMon,l));
+              return[
+              {lb:"Sales",v:fmtK2(rev),split:split(`${data.locations.loc1} ${fmtK2(cRev(latMon,"loc1"))} · ${data.locations.loc2} ${fmtK2(cRev(latMon,"loc2"))}`),col:T.blue,bg:T.blueL},
+              {lb:"Bowl Food Cost",v:fmtK2(cogs),extra:`${fcp.toFixed(1)}%`,split:split(`${data.locations.loc1} ${lfcp("loc1").toFixed(1)}% · ${data.locations.loc2} ${lfcp("loc2").toFixed(1)}%`),col:fcp>30?T.coral:T.amber,bg:fcp>30?T.coralL:T.amberL},
+              {lb:"Bowl Gross Profit",v:fmtK2(gp),split:split(`${data.locations.loc1} ${fmtK2(cBowlRev(latMon,"loc1")-cCOGS(latMon,"loc1"))} · ${data.locations.loc2} ${fmtK2(cBowlRev(latMon,"loc2")-cCOGS(latMon,"loc2"))}`),col:T.teal,bg:T.tealL},
+              {lb:"Other Revenue",v:fmtK2(otherRev),split:split(`${data.locations.loc1} ${fmtK2(lother("loc1"))} · ${data.locations.loc2} ${fmtK2(lother("loc2"))}`),col:T.blue,bg:T.blueL},
             ];})().map((k,i)=>(
               <div key={i} title={k.split||undefined} style={{background:k.bg,border:`1px solid ${T.border}`,borderRadius:isMobile?12:isDesktop?10:16,padding:isMobile?"14px 16px":isDesktop?"9px 14px":"18px 22px"}}>
                 <div style={{fontSize:isDesktop?11:10,color:T.inkL,textTransform:"uppercase",letterSpacing:"1px",fontWeight:700,marginBottom:isDesktop?3:8}}>{k.lb}</div>
@@ -797,7 +753,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
               </div>
             ))}
           </div>
-          {ytd.nMix<ytd.nAll&&<div style={{fontSize:10.5,color:T.muted,marginTop:6}}>Food cost & profit based on {ytd.nMix} of {ytd.nAll} months with bowl counts</div>}
+          {!hasData&&<div style={{fontSize:10.5,color:T.muted,marginTop:6}}>Food cost & profit read $0 until {latMon}'s bowl counts are uploaded on the Sales tab</div>}
         </div>
       )}
 
@@ -1607,8 +1563,9 @@ function MultiLine({series,T,money=true}){
 }
 
 // ─── SALES & P&L ─────────────────────────────────────────────────────────────
-function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,cBowlRev,cOtherRev,bowlUnits,bowlUnitsTotal,sizeAgg,totalBowls,costSz,isBowl,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,bFCP,bMargin,months,say,onSaveSales}){
+function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,saveYearTarget,cRev,cCOGS,cBowlRev,cOtherRev,bowlUnits,bowlUnitsTotal,sizeAgg,totalBowls,costSz,isBowl,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,bFCP,bMargin,months,say,onSaveSales}){
   const SZ=["small","medium","large"];
+  const [tgtEdit,setTgtEdit]=useState(null);
   const [showForm,setShowForm]=useState(false);
   const [fMonth,setFMonth]=useState("");
   const [fL1,setFL1]=useState("");
@@ -1806,6 +1763,51 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,cRev,cCOGS,cBowlRe
           <button onClick={()=>setShowForm(v=>!v)} style={{background:showForm?"transparent":T.blue,color:showForm?T.muted:"#fff",border:showForm?`1px solid ${T.border}`:"none",borderRadius:20,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>{showForm?"Cancel":"+ Enter monthly sales"}</button>
         </div>
       </div>
+
+      {/* Annual target — moved here from the dashboard (Sales owns planning/review) */}
+      {(()=>{
+        const yr=ytd?ytd.year:String(new Date().getFullYear());
+        const ytdSales=ytd?ytd.sales.all:0;
+        const now=new Date();
+        const yearFrac=(now-new Date(now.getFullYear(),0,1))/(new Date(now.getFullYear()+1,0,1)-new Date(now.getFullYear(),0,1));
+        const pace=yearTarget?yearTarget*yearFrac:0;
+        const pct=yearTarget?Math.min((ytdSales/yearTarget)*100,100):0;
+        const diff=ytdSales-pace;
+        return(
+          <div style={{...card,marginBottom:16}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:4}}>
+              <div style={{fontSize:isMobile?15:17,fontWeight:700}}>{yr} target</div>
+              {yearTarget&&tgtEdit===null&&<button onClick={()=>setTgtEdit(String(yearTarget))} style={{marginLeft:"auto",background:"transparent",border:`1px solid ${T.border}`,borderRadius:16,color:T.slate,padding:"4px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Edit target</button>}
+            </div>
+            {(!yearTarget||tgtEdit!==null)?(
+              <div>
+                <div style={{fontSize:12,color:T.muted,marginBottom:10,lineHeight:1.6}}>Set your total sales target for {yr} (both locations combined) to track pace against it all year.</div>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <span style={{fontSize:15,fontWeight:700,color:T.slate}}>$</span>
+                  <input type="number" min="1" placeholder="e.g. 250000" value={tgtEdit??""} onChange={e=>setTgtEdit(e.target.value)} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,color:T.ink,padding:"8px 12px",fontSize:14,width:140}}/>
+                  <button onClick={()=>{saveYearTarget(tgtEdit);setTgtEdit(null);}} style={{background:T.blue,color:"#fff",border:"none",borderRadius:16,padding:"8px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Save target</button>
+                  {yearTarget&&<button onClick={()=>setTgtEdit(null)} style={{background:"transparent",border:"none",color:T.muted,fontSize:13,cursor:"pointer"}}>Cancel</button>}
+                </div>
+              </div>
+            ):(
+              <div>
+                <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",marginBottom:isDesktop?6:10}}>
+                  <span style={{fontSize:isMobile?24:isDesktop?20:30,fontWeight:900,color:T.blue,letterSpacing:"-0.5px"}}>{fmtK2(ytdSales)}</span>
+                  <span style={{fontSize:isMobile?13:isDesktop?13:15,color:T.muted}}>of {fmtK2(yearTarget)} · {(yearTarget?(ytdSales/yearTarget)*100:0).toFixed(1)}% · year to date</span>
+                </div>
+                <div style={{position:"relative",height:isDesktop?6:12,background:T.border,borderRadius:6,marginBottom:6}}>
+                  <div style={{position:"absolute",height:"100%",width:`${pct}%`,background:diff>=0?T.teal:T.blue,borderRadius:6}}/>
+                  <div style={{position:"absolute",left:`${Math.min(yearFrac*100,100)}%`,top:isDesktop?-2:-3,width:2,height:isDesktop?10:18,background:T.ink,opacity:0.55}} title="Where you should be today at an even pace"/>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
+                  <span style={{fontSize:12,fontWeight:700,color:diff>=0?T.teal:T.coral}}>{diff>=0?`Ahead of pace by ${fmtK2(diff)}`:`Behind pace by ${fmtK2(-diff)}`}</span>
+                  <span style={{fontSize:11,color:T.muted}}>Pace marker = even spend of the year to date ({fmtK2(pace)})</span>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {editMonth&&ed&&(()=>{
         const numInp={width:44,textAlign:"center",background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"7px 4px",color:T.navy,fontSize:13,outline:"none"};
