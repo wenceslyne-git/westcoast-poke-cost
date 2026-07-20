@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { LIGHT, DARK, DATA, gL, gPct, fmt, fmtK, useBreakpoint, Spark, PriceChart, WCP_LOGO, ADDONS, CATALOG } from "./data.jsx";
-import { supabase, isOwner } from "./supabase.js";
+import { supabase, isOwner, OWNER_EMAILS } from "./supabase.js";
 import { loadAll, seedIfEmpty, saveReceipt, saveSales, addPrice, deletePriceEntry, deleteIngredient, deleteSupplier, upsertSupplier, saveMenuItem, deleteMenuItem, resyncMenu, saveAlert, saveMarketChecks, loadMarketChecks, canRunToday, recordRun, loadSetting, saveSetting, scansThisMonth, recordScan, loadReceipts, deleteReceiptCascade, deleteReceiptByKey, renameIngredientInPrices, loadDiscovered, saveDiscovered, saveIngredientFlags, saveCustomIngredients } from "./db.js";
 import Login from "./Login.jsx";
 import * as XLSX from "xlsx";
@@ -70,6 +70,7 @@ const NavIcon=({id,size=22})=>{
   if(id==="sales")return(<svg width={size} height={size} viewBox="0 0 24 24"><line x1="12" y1="2.5" x2="12" y2="21.5" {...p}/><path d="M16.5 6.5H10a3.25 3.25 0 0 0 0 6.5h4a3.25 3.25 0 0 1 0 6.5H7" {...p}/></svg>);
   if(id==="menu")return(<svg width={size} height={size} viewBox="0 0 24 24"><path d="M3.5 12.5h17a8.5 6.5 0 0 1-17 0z" {...p}/><line x1="6.5" y1="9.5" x2="17" y2="3.5" {...p}/><line x1="9.5" y1="10" x2="19.5" y2="5" {...p}/></svg>);
   if(id==="suppliers")return(<svg width={size} height={size} viewBox="0 0 24 24"><path d="M6 2.5h12v19l-2-1.6-2 1.6-2-1.6-2 1.6-2-1.6-2 1.6z" {...p}/><line x1="9" y1="7.5" x2="15" y2="7.5" {...p}/><line x1="9" y1="11" x2="15" y2="11" {...p}/><line x1="9" y1="14.5" x2="13" y2="14.5" {...p}/></svg>);
+  if(id==="security")return(<svg width={size} height={size} viewBox="0 0 24 24"><path d="M12 2.5l7.5 3v6c0 4.8-3.2 8.4-7.5 10-4.3-1.6-7.5-5.2-7.5-10v-6z" {...p}/><polyline points="8.8,12 11,14.2 15.2,9.8" {...p}/></svg>);
   if(id==="insights")return(<svg width={size} height={size} viewBox="0 0 24 24"><path d="M10 3.5l1.6 4.4L16 9.5l-4.4 1.6L10 15.5l-1.6-4.4L4 9.5l4.4-1.6z" {...p}/><path d="M18 13l0.9 2.3L21 16.2l-2.1 0.9L18 19.4l-0.9-2.3-2.1-0.9 2.1-0.9z" {...p}/><path d="M17.5 3.5l0.6 1.6 1.6 0.6-1.6 0.6-0.6 1.6-0.6-1.6-1.6-0.6 1.6-0.6z" {...p}/></svg>);
   return null;
 };
@@ -135,7 +136,7 @@ export default function App(){
     try{await saveSetting(`target_${new Date().getFullYear()}`,n);say("Year target saved");}
     catch(e){console.error(e);say("Couldn't save target",true);}
   };
-  const [tab,setTab]=useState(()=>{try{const t=localStorage.getItem("wp_tab");return["dashboard","sales","scan","suppliers","menu","insights"].includes(t)?t:"dashboard";}catch{return "dashboard";}});
+  const [tab,setTab]=useState(()=>{try{const t=localStorage.getItem("wp_tab");return["dashboard","sales","scan","suppliers","menu","insights","security"].includes(t)?t:"dashboard";}catch{return "dashboard";}});
   const [loc,setLoc]=useState(()=>{try{const l=localStorage.getItem("wp_loc");return["all","loc1","loc2"].includes(l)?l:"all";}catch{return "all";}});
   useEffect(()=>{try{localStorage.setItem("wp_tab",tab);localStorage.setItem("wp_loc",loc);}catch{}},[tab,loc]);
   const [toast,setToast]=useState(null);
@@ -658,7 +659,7 @@ export default function App(){
   const card={background:T.card,border:`1px solid ${T.border}`,borderRadius:isMobile?12:16,padding:isMobile?"16px":isDesktop?"14px 16px":"22px 24px"};
   const Tag=({c,bg,children,sm})=><span style={{background:bg||T.blueL,color:c||T.blue,border:`1px solid ${(c||T.blue)}22`,padding:sm?"2px 8px":"3px 10px",borderRadius:20,fontSize:sm?10:12,fontWeight:700,whiteSpace:"nowrap"}}>{children}</span>;
 
-  const TABS=[{id:"dashboard",label:"Dashboard"},{id:"sales",label:"Sales"},{id:"menu",label:"Menu"},{id:"suppliers",label:"Suppliers"},{id:"insights",label:"AI Insights"}];
+  const TABS=[{id:"dashboard",label:"Dashboard"},{id:"sales",label:"Sales"},{id:"menu",label:"Menu"},{id:"suppliers",label:"Suppliers"},{id:"insights",label:"AI Insights"},{id:"security",label:"Security"}];
 
   // ── auth gate ──
   if(session===undefined) return <div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted,fontFamily:"sans-serif"}}>Loading...</div>;
@@ -814,6 +815,7 @@ export default function App(){
         }}}/>}
         {tab==="scan"&&<Scan {...{T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan:()=>armPaid({label:"Receipt extraction (~$0.02)",secs:3,lastAt:null,fn:doScan}),okScan,onFile,fileRef,scanLoc,setScanLoc,locations:data.locations,data,reload,say}}/>}
         {tab==="insights"&&<Insights {...{T,isMobile,isDesktop,card,Tag,latMon,aiInsights,insightsDate,loadingInsights,insightsStale,generateInsights:()=>armPaid({label:"AI insights",secs:3,lastAt:insightsDate,fn:generateInsights}),insightChat,chatInput,setChatInput,chatLoading,sendChat}}/>}
+        {tab==="security"&&<SecurityTab {...{T,isMobile,card,say,session}}/>}
       </div>
         </div>
       </div>
@@ -825,6 +827,85 @@ export default function App(){
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
 // ─── CELEBRATIONS (item 15) — pure CSS, never blocks the UI ──────────────────
+function SecurityTab({T,isMobile,card,say,session}){
+  const [rows,setRows]=useState(null); // null = loading, [] = loaded empty
+  const [err,setErr]=useState(null);
+  const [busy,setBusy]=useState(null); // session_id being ended
+  const myEmail=(session?.user?.email||"").toLowerCase();
+  // The current session's id lives in the JWT payload (base64url, middle segment)
+  const mySid=(()=>{try{const p=JSON.parse(atob(session.access_token.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")));return p.session_id||null;}catch{return null;}})();
+  const load=async()=>{
+    setErr(null);
+    const {data,error}=await supabase.rpc("list_active_sessions");
+    if(error){setErr(error.message);setRows([]);return;}
+    setRows(data||[]);
+  };
+  useEffect(()=>{load();},[]);
+  const ago=(ts)=>{
+    if(!ts)return "—";
+    const m=Math.round((Date.now()-new Date(ts).getTime())/60000);
+    if(m<1)return "just now";if(m<60)return `${m}m ago`;
+    const h=Math.round(m/60);if(h<24)return `${h}h ago`;
+    return `${Math.round(h/24)}d ago`;
+  };
+  const device=(ua)=>{
+    if(!ua)return "Unknown device";
+    const os=/iPhone|iPad/.test(ua)?"iPhone/iPad":/Android/.test(ua)?"Android":/Macintosh/.test(ua)?"Mac":/Windows/.test(ua)?"Windows":"Other";
+    const br=/Edg\//.test(ua)?"Edge":/Chrome\//.test(ua)?"Chrome":/Safari\//.test(ua)?"Safari":/Firefox\//.test(ua)?"Firefox":"browser";
+    return `${os} · ${br}`;
+  };
+  const endSession=async(r)=>{
+    if(!window.confirm(`End the session for ${r.email} (${device(r.user_agent)})?\n\nThey stay signed in until their current token expires (up to ~1 hour), then that device is signed out. Their account is untouched — they can sign back in any time.`))return;
+    setBusy(r.session_id);
+    const {error}=await supabase.rpc("end_session",{sid:r.session_id});
+    setBusy(null);
+    if(error){say(`Couldn't end session — ${error.message}`,true);return;}
+    say("Session ended — device signs out within the hour");
+    load();
+  };
+  const initials=(e)=>(e||"?").slice(0,2).toUpperCase();
+  return(
+    <div>
+      <TabHead T={T} isMobile={isMobile} pre="Access &" em="security" color={T.blue} sub="Who can use the platform, and who's signed in right now"/>
+      <div style={{...card,padding:isMobile?16:20,marginBottom:16}}>
+        <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>Who can sign in</div>
+        <div style={{fontSize:12.5,color:T.muted,marginBottom:12}}>Only these {OWNER_EMAILS.length} emails can access the platform (enforced at login, in the app, and on the AI proxy). Changing the list is a code change.</div>
+        {OWNER_EMAILS.map((e,i)=>(
+          <div key={e} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderTop:i?`1px solid ${T.border}`:"none",fontSize:13.5}}>
+            <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{e}</span>
+            {e.toLowerCase()===myEmail
+              ?<span style={{background:T.blueL,color:T.blue,fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:10,whiteSpace:"nowrap"}}>You</span>
+              :<span style={{background:T.bg,color:T.muted,fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:10,whiteSpace:"nowrap"}}>Allowed</span>}
+          </div>
+        ))}
+      </div>
+      <div style={{...card,padding:isMobile?16:20}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+          <span style={{fontSize:15,fontWeight:800}}>Active sessions</span>
+          <button onClick={load} style={{marginLeft:"auto",background:"none",border:`1px solid ${T.border}`,borderRadius:14,color:T.muted,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>⟳ Refresh</button>
+        </div>
+        <div style={{fontSize:12.5,color:T.muted,marginBottom:12}}>Everyone currently signed in. Sessions never expire on their own — end one here and that device signs out when its current token runs out (up to ~1 hour).</div>
+        {rows===null&&<div style={{padding:"18px 0",color:T.muted,fontSize:13}}>Loading sessions…</div>}
+        {err&&<div style={{background:T.amberL,border:`1px solid ${T.amber}44`,borderRadius:10,padding:"10px 14px",fontSize:12.5,color:T.slate}}>Couldn't load sessions — {err}. If this says the function doesn't exist, run security-sessions.sql in the Supabase SQL Editor first.</div>}
+        {rows&&!err&&rows.length===0&&<div style={{padding:"18px 0",color:T.muted,fontSize:13}}>No active sessions found.</div>}
+        {rows&&rows.map((r,i)=>{
+          const isMe=r.session_id===mySid;
+          return(
+            <div key={r.session_id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 0",borderTop:i?`1px solid ${T.border}`:"none"}}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:isMe?T.blueL:T.bg,color:isMe?T.blue:T.muted,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,flexShrink:0}}>{initials(r.email)}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.email}{isMe&&<span style={{color:T.muted,fontWeight:400}}> · this device</span>}</div>
+                <div style={{fontSize:12,color:T.muted}}>{device(r.user_agent)} · signed in {ago(r.created_at)} · last active {ago(r.refreshed_at||r.created_at)}</div>
+              </div>
+              <button disabled={isMe||busy===r.session_id} onClick={()=>endSession(r)} style={{background:"none",border:`1px solid ${isMe?T.border:T.coral}66`,borderRadius:14,color:isMe?T.muted:T.coral,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:isMe?"not-allowed":"pointer",opacity:isMe?0.5:1,whiteSpace:"nowrap",flexShrink:0}}>{busy===r.session_id?"Ending…":"End session"}</button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function Celebration({T,c}){
   const cols=[T.blue,T.teal,T.coral,T.amber,"#8B5CF6"];
   const pieces=(n,rain)=>Array.from({length:n},(_,i)=>{
@@ -2745,7 +2826,7 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedP
       }
       await reload();
       say(orphans.length?`Menu resynced · ${orphans.length} orphan(s) reviewed`:"Menu resynced from seed");
-    }catch(e){console.error(e);say("Resync failed",true);}
+    }catch(e){console.error(e);say(`Resync failed — ${e.message||e}`,true);}
     setResyncing(false);
   };
   const SZ=["small","medium","large"];

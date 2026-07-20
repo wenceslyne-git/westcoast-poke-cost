@@ -60,7 +60,8 @@ export async function saveIngredientFlags(map) { await saveSetting("ingredient_f
 export async function saveCustomIngredients(arr) { await saveSetting("custom_ingredients", arr || []); }
 
 export async function seedIfEmpty() {
-  const { count } = await supabase.from("menu_items").select("*", { count: "exact", head: true });
+  const { count, error: cntErr } = await supabase.from("menu_items").select("*", { count: "exact", head: true });
+  if (cntErr) throw new Error(`Menu count failed: ${cntErr.message}`);
   if (count && count > 0) return false;
 
   await supabase.from("suppliers").upsert(Object.entries(DATA.suppliers).map(([name, s]) => ({
@@ -81,12 +82,14 @@ export async function seedIfEmpty() {
 
 export async function resyncMenu() {
   // Upsert every seed item over the DB (adds missing, overwrites sizes/recipe/price/category on name match)
-  await supabase.from("menu_items").upsert(
+  const { error: upErr } = await supabase.from("menu_items").upsert(
     Object.entries(DATA.menu).map(([name, m]) => ({ name, price: m.sizes.medium, sizes: m.sizes, ingredients: m.ing, category: m.category || "classic" })),
     { onConflict: "name" }
   );
+  if (upErr) throw new Error(`Menu upsert failed: ${upErr.message}`);
   // Orphans = live rows not present in the seed (flagged to caller, never auto-deleted here)
-  const { data: rows } = await supabase.from("menu_items").select("name");
+  const { data: rows, error: selErr } = await supabase.from("menu_items").select("name");
+  if (selErr) throw new Error(`Menu read-back failed: ${selErr.message}`);
   const seedNames = new Set(Object.keys(DATA.menu));
   const orphans = (rows || []).map(r => r.name).filter(n => !seedNames.has(n));
   return { orphans };
