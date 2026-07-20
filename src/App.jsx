@@ -512,7 +512,7 @@ export default function App(){
   const [celebrate,setCelebrate]=useState(null); // {type:"confetti"|"fish"|"sparkle"|"pulse"|"grand"}
   useEffect(()=>{
     if(!celebrate)return;
-    const t=setTimeout(()=>setCelebrate(null),celebrate.type==="grand"?3400:celebrate.type==="fish"?2400:1800);
+    const t=setTimeout(()=>setCelebrate(null),celebrate.type==="grand"?3400:celebrate.type==="fish"?3600:1800);
     return()=>clearTimeout(t);
   },[celebrate]);
 
@@ -780,7 +780,7 @@ export default function App(){
         {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,ytd,yearTarget,saveYearTarget,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market,searchTerms,volatileIngredients,trackIngredient,healthScore,healthHint,onRefreshLive:()=>armPaid({label:"Live price refresh",secs:10,lastAt:(()=>{const all=Object.values(market||{}).flat().map(r=>r.at).sort();return all.pop()||null;})(),fn:refreshLivePrices}),liveBusy:chkAll}}/>}
         {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedPrice,priceFor,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,market,searchTerms,saveSearchTerm}}/>}
         {tab==="suppliers"&&<Suppliers {...{T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,reload,armPaid}}/>}
-        {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,saveYearTarget,cRev,cCOGS,cBowlRev,cOtherRev,bowlUnits,bowlUnitsTotal,sizeAgg,totalBowls,costSz,isBowl,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,bFCP,bMargin,months,say,onSaveSales:async(month,l1,l2,mix)=>{
+        {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,saveYearTarget,fishActive:celebrate?.type==="fish",cRev,cCOGS,cBowlRev,cOtherRev,bowlUnits,bowlUnitsTotal,sizeAgg,totalBowls,costSz,isBowl,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,bFCP,bMargin,months,say,onSaveSales:async(month,l1,l2,mix)=>{
           const u=JSON.parse(JSON.stringify(data));
           u.sales[month]={loc1:l1,loc2:l2,mix:mix||{}};
           setData(u);
@@ -820,7 +820,7 @@ export default function App(){
         </div>
       </div>
 
-      <style>{"@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}} @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}} @keyframes wpRain{0%{transform:translateY(-20px) rotate(0deg);opacity:1}85%{opacity:1}100%{transform:translateY(105vh) rotate(480deg);opacity:0}} @keyframes wpSpark{0%{transform:scale(0.4) translateY(6px);opacity:0}35%{transform:scale(1.25) translateY(-6px);opacity:1}100%{transform:scale(0.9) translateY(-22px);opacity:0}} @keyframes wpPop{0%{transform:scale(0.4);opacity:0}55%{transform:scale(1.25);opacity:1}100%{transform:scale(1);opacity:1}} @keyframes wpFish{0%{transform:translate(-80px,78vh) rotate(-38deg);opacity:0}10%{opacity:1}50%{transform:translate(45vw,16vh) rotate(6deg)}90%{opacity:1}100%{transform:translate(95vw,80vh) rotate(50deg);opacity:0}} @keyframes wpSplash{0%,80%{transform:translate(0,0) scale(0);opacity:0}90%{transform:translate(var(--dx),var(--dy)) scale(1);opacity:0.9}100%{transform:translate(var(--dx),calc(var(--dy) + 24px)) scale(0.7);opacity:0}} @keyframes wpBanner{0%{transform:translate(-50%,-50%) scale(0.7);opacity:0}70%{transform:translate(-50%,-50%) scale(1.05);opacity:1}100%{transform:translate(-50%,-50%) scale(1);opacity:1}} @keyframes wpBarIn{0%{transform:scaleY(0)}100%{transform:scaleY(1)}} @keyframes wpSlideIn{0%{opacity:0;transform:translateY(6px)}100%{opacity:1;transform:translateY(0)}} @keyframes wpSheen{0%{transform:translateX(-110%)}100%{transform:translateX(240%)}} *{box-sizing:border-box} button:active:not(:disabled){transform:scale(0.97)}"}</style>
+      <style>{"@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}} @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}} @keyframes wpRain{0%{transform:translateY(-20px) rotate(0deg);opacity:1}85%{opacity:1}100%{transform:translateY(105vh) rotate(480deg);opacity:0}} @keyframes wpSpark{0%{transform:scale(0.4) translateY(6px);opacity:0}35%{transform:scale(1.25) translateY(-6px);opacity:1}100%{transform:scale(0.9) translateY(-22px);opacity:0}} @keyframes wpPop{0%{transform:scale(0.4);opacity:0}55%{transform:scale(1.25);opacity:1}100%{transform:scale(1);opacity:1}} @keyframes wpFish{0%{transform:translate(-80px,78vh) rotate(-38deg);opacity:0}10%{opacity:1}50%{transform:translate(45vw,16vh) rotate(6deg)}90%{opacity:1}100%{transform:translate(95vw,80vh) rotate(50deg);opacity:0}} @keyframes wpSplash{0%,80%{transform:translate(0,0) scale(0);opacity:0}90%{transform:translate(var(--dx),var(--dy)) scale(1);opacity:0.9}100%{transform:translate(var(--dx),calc(var(--dy) + 24px)) scale(0.7);opacity:0}} @keyframes wpBanner{0%{transform:translate(-50%,-50%) scale(0.7);opacity:0}70%{transform:translate(-50%,-50%) scale(1.05);opacity:1}100%{transform:translate(-50%,-50%) scale(1);opacity:1}} @keyframes wpWeave{0%{left:-50px;top:-8px;transform:rotate(-4deg);opacity:0}8%{opacity:1}25%{top:-18px;transform:rotate(7deg)}45%{top:8px;transform:rotate(-8deg)}65%{top:-14px;transform:rotate(6deg)}85%{top:0;transform:rotate(-5deg);opacity:1}100%{left:101%;top:-8px;transform:rotate(0deg);opacity:0}} @keyframes wpBub{0%{transform:translateY(0) scale(0.5);opacity:0}30%{opacity:0.6}100%{transform:translateY(-14px) scale(1);opacity:0}} @keyframes wpBarIn{0%{transform:scaleY(0)}100%{transform:scaleY(1)}} @keyframes wpSlideIn{0%{opacity:0;transform:translateY(6px)}100%{opacity:1;transform:translateY(0)}} @keyframes wpSheen{0%{transform:translateX(-110%)}100%{transform:translateX(240%)}} *{box-sizing:border-box} button:active:not(:disabled){transform:scale(0.97)}"}</style>
     </div>
   );
 }
@@ -922,25 +922,8 @@ function Celebration({T,c}){
       </div>
     );
   }
-  if(c.type==="fish"){
-    const fp={fill:"none",stroke:T.blue,strokeWidth:2.4,strokeLinecap:"round",strokeLinejoin:"round"};
-    return(
-      <div style={{position:"fixed",inset:0,zIndex:3000,pointerEvents:"none",overflow:"hidden"}}>
-        <div style={{position:"absolute",left:0,top:0,animation:"wpFish 1.8s cubic-bezier(0.35,0,0.65,1) forwards",opacity:0}}>
-          <svg width="72" height="46" viewBox="0 0 72 46">
-            <path d="M6 23c10-13 26-18 40-14 8 2.4 14 7 20 14-6 7-12 11.6-20 14-14 4-30-1-40-14z" {...fp} fill={T.tealL}/>
-            <path d="M66 23l-12-10v20z" {...fp} fill={T.blueL}/>
-            <circle cx="20" cy="19" r="2.6" fill={T.blue}/>
-          </svg>
-        </div>
-        {Array.from({length:8},(_,i)=>{
-          const ang=Math.PI*(0.15+Math.random()*0.7),dist=30+Math.random()*46;
-          return <span key={i} style={{position:"absolute",left:"72%",bottom:60,width:7,height:7,borderRadius:"50%",background:T.teal,opacity:0,
-            "--dx":`${Math.cos(ang)*(Math.random()<0.5?-1:1)*dist}px`,"--dy":`${-Math.sin(ang)*dist}px`,animation:`wpSplash 2s ease-out ${0.05*i}s forwards`}}/>;
-        })}
-      </div>
-    );
-  }
+  // "fish" is rendered inline by the Sales narrative (chubby weave-around) — no full-screen overlay
+  if(c.type==="fish")return null;
   return(
     <div style={{position:"fixed",inset:0,zIndex:3000,pointerEvents:"none",overflow:"hidden"}}>
       {pieces(c.type==="grand"?80:50,c.type==="grand")}
@@ -1863,7 +1846,7 @@ function MultiLine({series,T,money=true}){
 }
 
 // ─── SALES & P&L ─────────────────────────────────────────────────────────────
-function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,saveYearTarget,cRev,cCOGS,cBowlRev,cOtherRev,bowlUnits,bowlUnitsTotal,sizeAgg,totalBowls,costSz,isBowl,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,bFCP,bMargin,months,say,onSaveSales}){
+function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,saveYearTarget,fishActive,cRev,cCOGS,cBowlRev,cOtherRev,bowlUnits,bowlUnitsTotal,sizeAgg,totalBowls,costSz,isBowl,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,bFCP,bMargin,months,say,onSaveSales}){
   const SZ=["small","medium","large"];
   const [tgtEdit,setTgtEdit]=useState(null);
   const [showForm,setShowForm]=useState(false);
@@ -2084,9 +2067,26 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
           return `${last} came in ${Math.abs(chg).toFixed(0)}% below ${prev.split(" ")[0]} — it's tracked, and tracked months are fixable months. Keep swimming.`;
         })();
         return(
-          <div key={narrative} style={{display:"flex",gap:10,alignItems:"stretch",margin:"0 0 18px"}}>
-            <span style={{width:3.5,borderRadius:2,background:T.blue,transformOrigin:"top",animation:"wpBarIn 0.45s ease-out both",flexShrink:0}}/>
-            <span style={{position:"relative",overflow:"hidden",borderRadius:6,padding:"2px 6px 2px 2px",fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6,animation:"wpSlideIn 0.5s 0.1s ease-out both"}}>
+          <div key={narrative} style={{position:"relative",display:"flex",gap:10,alignItems:"stretch",margin:"0 0 18px"}}>
+            {/* Chubby fish (item 15, approved): weaves around the narrative on down-month saves — nose-first, behind the text, no reserved lane */}
+            {fishActive&&(
+              <>
+                <span style={{position:"absolute",left:-50,top:-8,zIndex:0,pointerEvents:"none",animation:"wpWeave 3s ease-in-out 0.2s forwards",opacity:0}}>
+                  <svg width="46" height="34" viewBox="0 0 66 48" style={{transform:"scaleX(-1)"}}>
+                    <ellipse cx="28" cy="24" rx="22" ry="17" fill={T.tealL} stroke={T.blue} strokeWidth="3" opacity="0.92"/>
+                    <path d="M48 24l14-11-4 11 4 11z" fill={T.blueL} stroke={T.blue} strokeWidth="3" strokeLinejoin="round" opacity="0.92"/>
+                    <circle cx="18" cy="19" r="4.4" fill={T.card} stroke={T.blue} strokeWidth="2"/>
+                    <circle cx="19.5" cy="20" r="2" fill={T.blue}/>
+                    <path d="M12 30q4 3 8 0" fill="none" stroke={T.blue} strokeWidth="2.2" strokeLinecap="round"/>
+                  </svg>
+                </span>
+                {[["30%","-4px","1.2s"],["55%","10px","1.8s"],["80%","-2px","2.4s"]].map(([lft,tp,del],i)=>(
+                  <span key={i} style={{position:"absolute",left:lft,top:tp,width:5,height:5,borderRadius:"50%",border:`1.5px solid ${T.teal}`,opacity:0,zIndex:0,pointerEvents:"none",animation:`wpBub 1.1s ${del} ease-out forwards`}}/>
+                ))}
+              </>
+            )}
+            <span style={{width:3.5,borderRadius:2,background:T.blue,transformOrigin:"top",animation:"wpBarIn 0.45s ease-out both",flexShrink:0,position:"relative",zIndex:1}}/>
+            <span style={{position:"relative",zIndex:1,overflow:"hidden",borderRadius:6,padding:"2px 6px 2px 2px",fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6,animation:"wpSlideIn 0.5s 0.1s ease-out both"}}>
               {narrative}
               <span style={{position:"absolute",top:0,bottom:0,left:0,width:"45%",background:`linear-gradient(105deg,transparent,${T.blue}44,transparent)`,transform:"translateX(-110%)",animation:"wpSheen 1.4s ease-in-out 0.4s 2",pointerEvents:"none"}}/>
             </span>
