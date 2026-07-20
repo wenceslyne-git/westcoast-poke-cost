@@ -370,7 +370,8 @@ export default function App(){
     try{
       await saveReceipt({...result,items:foodItems},scanLoc);
       await reload();
-      say(`Saved ${saved} food item${saved!==1?"s":""}${excluded?` · ${excluded} non-food line${excluded!==1?"s":""} kept in the download only`:""}`);
+      setCelebrate({type:"sparkle"});
+      say(`Saved ${saved} food item${saved!==1?"s":""} · ${receiptsThisMonth+1} receipt${receiptsThisMonth+1!==1?"s":""} this month${excluded?` · ${excluded} non-food line${excluded!==1?"s":""} kept in the download only`:""}`);
     }catch(e){
       console.error(e);
       say("Saved locally — database sync failed",true);
@@ -497,10 +498,98 @@ export default function App(){
       const next={...marketSamples,[sampleDue.date]:new Date().toISOString()};
       setMarketSamples(next);
       await saveSetting("market_samples",next);
-      say(`Market sample recorded — ${saved} price${saved!==1?"s":""} found across ${trackedIngredients.length} tracked ingredient${trackedIngredients.length!==1?"s":""}`);
+      say(`Market sample recorded — ${saved} price${saved!==1?"s":""} found across ${trackedIngredients.length} tracked ingredient${trackedIngredients.length!==1?"s":""}${sampleStreak>0?` · ${sampleStreak+1} samples in a row`:""}`);
+      setCelebrate({type:"pulse"});
     }catch(e){console.error(e);say("Market sample failed — try again",true);}
     setSampleBusy(false);
   };
+
+  // ── Item 16: notification bell — all "keep-up" nudges in one place ──
+  const [bellOpen,setBellOpen]=useState(false);
+
+  // ── Item 15: data health, streaks, celebrations ──
+  const [celebrate,setCelebrate]=useState(null); // {type:"confetti"|"fish"|"sparkle"|"pulse"|"grand"}
+  useEffect(()=>{
+    if(!celebrate)return;
+    const t=setTimeout(()=>setCelebrate(null),celebrate.type==="grand"?3400:celebrate.type==="fish"?2400:1800);
+    return()=>clearTimeout(t);
+  },[celebrate]);
+
+  const recipeUsedIngredients=(()=>{
+    const s=new Set();
+    Object.values(data.menu).forEach(m=>["small","medium","large"].forEach(sz=>Object.keys(m.ing?.[sz]||{}).forEach(n=>s.add(n))));
+    return s;
+  })();
+  // Recipe-used ingredients with a price history whose latest entry is older than 30 days
+  const staleIngredients=Object.entries(data.ingredients).filter(([n])=>recipeUsedIngredients.has(n)).map(([n,e])=>{
+    const last=e[e.length-1];if(!last)return null;
+    const days=Math.floor((Date.now()-new Date(last.date).getTime())/86400000);
+    return days>30?{n,days}:null;
+  }).filter(Boolean).sort((a,b)=>b.days-a.days);
+
+  const monthKeyNow=`${MNC[new Date().getMonth()]} ${new Date().getFullYear()}`;
+  const salesEnteredNow=!!data.sales[monthKeyNow];
+  const countsNow=totalBowls(monthKeyNow,"all")>0;
+  const samplesOkay=!sampleDue; // all samples due so far this month are recorded
+  const freshFrac=(()=>{
+    const priced=Object.keys(data.ingredients).filter(n=>recipeUsedIngredients.has(n));
+    if(!priced.length)return 0;
+    return (priced.length-staleIngredients.length)/priced.length;
+  })();
+  const healthScore=Math.round((salesEnteredNow?25:0)+(countsNow?25:0)+(Math.min(freshFrac/0.8,1)*25)+(samplesOkay?25:0));
+  const healthHint=!salesEnteredNow?`Enter ${monthKeyNow}'s sales to lift the score`
+    :!countsNow?`Upload ${monthKeyNow}'s bowl counts to lift the score`
+    :staleIngredients.length?`No cost recorded for ${staleIngredients.slice(0,2).map(s=>s.n).join(" or ")} in ${staleIngredients[0].days} days — scan a recent invoice`
+    :!samplesOkay?"Run the due market sample to hit 100"
+    :"All caught up — nice.";
+
+  // Streaks: consecutive calendar months with sales entered (ending at the latest entered month)
+  const salesStreak=(()=>{
+    if(!months.length)return 0;
+    const last=months[months.length-1];
+    let mi=MNC.indexOf(last.split(" ")[0]),y=parseInt(last.split(" ")[1]),n=0;
+    while(data.sales[`${MNC[mi]} ${y}`]){n++;mi--;if(mi<0){mi=11;y--;}}
+    return n;
+  })();
+  const sampleStreak=(()=>{
+    // consecutive sample due-dates satisfied, walking back from the most recent due date
+    const dues=[];const now=new Date();
+    for(let k=0;k<12;k++){
+      const y=now.getFullYear(),m=now.getMonth()-k;
+      const end=new Date(y,m+1,0),mid=new Date(y,m,15);
+      [end,mid].forEach(d=>{if(d<=now)dues.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`);});
+    }
+    let n=0;for(const d of dues){if(marketSamples[d])n++;else break;}
+    return n;
+  })();
+  const receiptsThisMonth=(()=>{
+    const pre=new Date().toISOString().slice(0,7);
+    return (data.receipts||[]).filter(fp=>String(fp.split("|")[1]||"").slice(0,7)===pre).length;
+  })();
+
+  // Yearly target: full celebration the FIRST time YTD crosses it (flag stored in settings)
+  const [celebratedYear,setCelebratedYear]=useState(true); // assume celebrated until the flag loads
+  useEffect(()=>{
+    if(!session||!isOwner(session.user?.email))return;
+    (async()=>{try{setCelebratedYear(!!await loadSetting(`celebrated_${new Date().getFullYear()}`,false));}catch(e){}})();
+  },[session]);
+  const targetReached=yearTarget&&ytd&&ytd.sales.all>=yearTarget;
+  // Bell items self-clear: computed fresh each render from live data (item 16)
+  const bellItems=[
+    sampleDue&&trackedIngredients.length>0?{icon:"⏰",text:`Market sample due (${sampleDue.label}) — ${trackedIngredients.length} tracked ingredient${trackedIngredients.length!==1?"s":""}`,action:"Run sample",fn:()=>{setBellOpen(false);armPaid({label:`Market sample · ${sampleDue.label}`,secs:10,lastAt:Object.values(marketSamples).sort().pop()||null,fn:runMarketSample});}}:null,
+    ...staleIngredients.slice(0,5).map(s=>({icon:"🥑",text:`No cost recorded for ${s.n} in ${s.days} days`,action:"Scan receipt",fn:()=>{setBellOpen(false);setTab("scan");}})),
+    months.length&&!salesEnteredNow?{icon:"📊",text:`${monthKeyNow} sales not entered yet`,action:"Go to Sales",fn:()=>{setBellOpen(false);setTab("sales");}}:null,
+    months.length&&salesEnteredNow&&!countsNow?{icon:"📊",text:`${monthKeyNow} bowl counts not uploaded`,action:"Go to Sales",fn:()=>{setBellOpen(false);setTab("sales");}}:null,
+    ...activeAlerts.map(([i,t])=>({icon:"🔺",text:`Price alert: ${i} above $${t}`,action:"Review",fn:()=>{setBellOpen(false);setTab("menu");}})),
+  ].filter(Boolean);
+
+  useEffect(()=>{
+    if(targetReached&&!celebratedYear){
+      setCelebratedYear(true);
+      setCelebrate({type:"grand",msg:`You did it — ${fmtK(yearTarget)} for ${new Date().getFullYear()}!`});
+      saveSetting(`celebrated_${new Date().getFullYear()}`,true).catch(()=>{});
+    }
+  },[targetReached,celebratedYear]);
 
   // ── AI insights ──
   const buildDataSummary=()=>JSON.stringify({
@@ -617,6 +706,8 @@ export default function App(){
         </div>
       )}
 
+      {celebrate&&<Celebration T={T} c={celebrate}/>}
+
       {tip&&<div style={{position:"fixed",left:tip.x,top:tip.y,transform:tip.side==="right"?"translateY(-50%)":"translateX(-50%)",background:T.navy,color:"#fff",fontSize:11,fontWeight:600,padding:"5px 9px",borderRadius:7,pointerEvents:"none",zIndex:2000,whiteSpace:"nowrap",boxShadow:"0 4px 14px rgba(0,0,0,0.22)"}}>{tip.text}</div>}
 
       {/* header */}
@@ -646,18 +737,12 @@ export default function App(){
         </div>
       </div>
 
-      {activeAlerts.length>0&&(
-        <div style={{background:T.coralL,borderBottom:`1px solid ${T.coral}33`,padding:isMobile?"9px 14px":"9px 28px",display:"flex",alignItems:"center",gap:10,fontSize:isMobile?12:14,flexShrink:0}}>
-          <span>🔺</span><span style={{color:T.coral,fontWeight:700}}>Price alert:</span>
-          <span style={{color:T.slate,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{activeAlerts.map(([i])=>i).join(" · ")}</span>
-          <button onClick={()=>setTab("menu")} style={{marginLeft:"auto",background:"none",border:`1px solid ${T.coral}`,borderRadius:20,color:T.coral,padding:"3px 10px",fontSize:12,cursor:"pointer",fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>Review →</button>
-        </div>
-      )}
+      {/* price alerts now live in the notification bell (item 16) */}
 
       {sampleDue&&trackedIngredients.length>0&&(
         <div style={{background:T.amberL,borderBottom:`1px solid ${T.amber}44`,padding:isMobile?"8px 14px":"8px 28px",display:"flex",alignItems:"center",gap:10,fontSize:isMobile?12:13,flexShrink:0}}>
           <span style={{color:T.amber,fontWeight:700}}>⏰ Market sample due ({sampleDue.label}):</span>
-          <span style={{color:T.slate,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{trackedIngredients.length} tracked ingredient{trackedIngredients.length!==1?"s":""} × 2 locations — run it to keep the market trend up to date</span>
+          <span style={{color:T.slate,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{trackedIngredients.length} tracked ingredient{trackedIngredients.length!==1?"s":""} × 2 locations — {sampleStreak>1?`don't break your ${sampleStreak}-sample streak`:"run it to keep the market trend up to date"}</span>
           <button disabled={sampleBusy} onClick={()=>armPaid({label:`Market sample · ${sampleDue.label}`,secs:10,lastAt:Object.values(marketSamples).sort().pop()||null,fn:runMarketSample})} style={{marginLeft:"auto",background:sampleBusy?T.bg:T.amber,border:"none",borderRadius:20,color:sampleBusy?T.muted:"#fff",padding:"4px 12px",fontSize:12,cursor:sampleBusy?"wait":"pointer",fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>{sampleBusy?"Sampling…":"Run sample"}</button>
         </div>
       )}
@@ -670,17 +755,65 @@ export default function App(){
               {t.id==="insights"&&insightsStale&&<span style={{position:"absolute",top:5,right:5,width:7,height:7,borderRadius:"50%",background:T.coral}}/>}
             </button>
           ))}
+          <button onClick={()=>setBellOpen(v=>!v)} {...tipRight("Notifications")} aria-label="Notifications" style={{position:"relative",marginTop:"auto",width:isMobile?40:46,height:isMobile?40:46,borderRadius:12,background:bellOpen?T.blueL:"transparent",border:bellOpen?`1.5px solid ${T.blue}44`:"1.5px solid transparent",color:bellOpen?T.blue:T.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
+            <svg width={isMobile?19:22} height={isMobile?19:22} viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 1 6 6v3.5l1.8 3.2a1 1 0 0 1-.9 1.5H5.1a1 1 0 0 1-.9-1.5L6 12.5V9a6 6 0 0 1 6-6z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M9.8 19.5a2.3 2.3 0 0 0 4.4 0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
+            {bellItems.length>0&&<span style={{position:"absolute",top:2,right:2,minWidth:16,height:16,borderRadius:9,background:T.coral,color:"#fff",fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{bellItems.length}</span>}
+          </button>
         </div>
+        {bellOpen&&(
+          <div style={{position:"fixed",left:isMobile?58:70,bottom:16,zIndex:1200,background:T.card,border:`1px solid ${T.border}`,borderRadius:14,width:isMobile?"calc(100vw - 70px)":360,maxHeight:"60vh",overflowY:"auto",boxShadow:"0 10px 34px rgba(0,0,0,0.22)"}}>
+            <div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:14,fontWeight:800}}>Keep-up list</span>
+              <span style={{fontSize:11,color:T.muted}}>{bellItems.length?`${bellItems.length} open item${bellItems.length!==1?"s":""}`:"all clear"}</span>
+              <button onClick={()=>setBellOpen(false)} aria-label="Close" style={{marginLeft:"auto",background:"none",border:"none",fontSize:18,color:T.muted,cursor:"pointer",lineHeight:1,padding:0}}>×</button>
+            </div>
+            {bellItems.length===0?(
+              <div style={{padding:"22px 16px",textAlign:"center",color:T.muted,fontSize:13}}>🎉 Nothing outstanding — your data's in good shape.</div>
+            ):bellItems.map((b,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:i<bellItems.length-1?`1px solid ${T.border}`:"none"}}>
+                <span style={{fontSize:16,flexShrink:0}}>{b.icon}</span>
+                <span style={{flex:1,fontSize:12.5,color:T.slate,lineHeight:1.45}}>{b.text}</span>
+                <button onClick={b.fn} style={{background:T.blueL,border:`1px solid ${T.border}`,borderRadius:14,color:T.blue,padding:"5px 12px",fontSize:11.5,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{b.action}</button>
+              </div>
+            ))}
+          </div>
+        )}
         <div style={{flex:1,minWidth:0,height:"100%",overflowY:"auto"}}>
       <div style={{padding:isMobile?"16px":"28px 32px",maxWidth:MAXW,margin:"0 auto"}}>
-        {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,ytd,yearTarget,saveYearTarget,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market,searchTerms,volatileIngredients,trackIngredient,onRefreshLive:()=>armPaid({label:"Live price refresh",secs:10,lastAt:(()=>{const all=Object.values(market||{}).flat().map(r=>r.at).sort();return all.pop()||null;})(),fn:refreshLivePrices}),liveBusy:chkAll}}/>}
+        {tab==="dashboard"&&<Dashboard {...{T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,ytd,yearTarget,saveYearTarget,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market,searchTerms,volatileIngredients,trackIngredient,healthScore,healthHint,onRefreshLive:()=>armPaid({label:"Live price refresh",secs:10,lastAt:(()=>{const all=Object.values(market||{}).flat().map(r=>r.at).sort();return all.pop()||null;})(),fn:refreshLivePrices}),liveBusy:chkAll}}/>}
         {tab==="menu"&&<MenuTab {...{T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedPrice,priceFor,say,reload,selIng,setSelIng,checks,chkIng,chkAll,doCheck,market,searchTerms,saveSearchTerm}}/>}
         {tab==="suppliers"&&<Suppliers {...{T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,reload,armPaid}}/>}
         {tab==="sales"&&<Sales {...{T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,saveYearTarget,cRev,cCOGS,cBowlRev,cOtherRev,bowlUnits,bowlUnitsTotal,sizeAgg,totalBowls,costSz,isBowl,bCost,bCostAtApp,costSzAt,priceFor,blendedPrice,bFCP,bMargin,months,say,onSaveSales:async(month,l1,l2,mix)=>{
           const u=JSON.parse(JSON.stringify(data));
           u.sales[month]={loc1:l1,loc2:l2,mix:mix||{}};
           setData(u);
-          try{await saveSales(month,l1,l2,mix||{});say(`${month} sales saved`);}
+          try{
+            await saveSales(month,l1,l2,mix||{});
+            // Celebration (item 15): confetti for up/level months, logo fish + honest encouragement for down months
+            const tot=(l1||0)+(l2||0);
+            const mi=MNC.indexOf(month.split(" ")[0]),y=parseInt(month.split(" ")[1]);
+            const pd=new Date(y,mi-1);const prevKey=`${MNC[pd.getMonth()]} ${pd.getFullYear()}`;
+            const ps=data.sales[prevKey];const prevTot=ps?(ps.loc1||0)+(ps.loc2||0):0;
+            const streakLine=salesStreak>1?` · ${salesStreak+ (data.sales[month]?0:1)} months without a gap`:"";
+            if(prevTot&&tot<prevTot*0.995){
+              const chg=((prevTot-tot)/prevTot)*100;
+              const now=new Date();
+              const yearFrac=(now-new Date(now.getFullYear(),0,1))/(new Date(now.getFullYear()+1,0,1)-new Date(now.getFullYear(),0,1));
+              const aheadOfPace=yearTarget&&ytd&&ytd.sales.all>=yearTarget*yearFrac;
+              const silver=aheadOfPace?"but you're still ahead of target pace on the year"
+                :salesStreak>1?`but that's a streak of tracked months — consistency catches problems early`
+                :"but it's tracked, and tracked months are fixable months";
+              setCelebrate({type:"fish"});
+              say(`${month} saved · $${fmt(tot)} — down ${chg.toFixed(0)}% on ${prevKey.split(" ")[0]}, ${silver}. Keep swimming.`);
+            }else if(prevTot&&tot>prevTot*1.005){
+              const chg=((tot-prevTot)/prevTot)*100;
+              setCelebrate({type:"confetti"});
+              say(`${month} saved · $${fmt(tot)} — up ${chg.toFixed(0)}% on ${prevKey.split(" ")[0]} 📈${streakLine}`);
+            }else{
+              setCelebrate({type:"confetti"});
+              say(`${month} sales saved${streakLine}`);
+            }
+          }
           catch(e){console.error(e);say("Save failed — try again",true);}
         }}}/>}
         {tab==="scan"&&<Scan {...{T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan:()=>armPaid({label:"Receipt extraction (~$0.02)",secs:3,lastAt:null,fn:doScan}),okScan,onFile,fileRef,scanLoc,setScanLoc,locations:data.locations,data,reload,say}}/>}
@@ -689,12 +822,92 @@ export default function App(){
         </div>
       </div>
 
-      <style>{"@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}} @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}} *{box-sizing:border-box} button:active:not(:disabled){transform:scale(0.97)}"}</style>
+      <style>{"@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}} @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}} @keyframes wpRain{0%{transform:translateY(-20px) rotate(0deg);opacity:1}85%{opacity:1}100%{transform:translateY(105vh) rotate(480deg);opacity:0}} @keyframes wpSpark{0%{transform:scale(0.4) translateY(6px);opacity:0}35%{transform:scale(1.25) translateY(-6px);opacity:1}100%{transform:scale(0.9) translateY(-22px);opacity:0}} @keyframes wpPop{0%{transform:scale(0.4);opacity:0}55%{transform:scale(1.25);opacity:1}100%{transform:scale(1);opacity:1}} @keyframes wpFish{0%{transform:translate(-80px,78vh) rotate(-38deg);opacity:0}10%{opacity:1}50%{transform:translate(45vw,16vh) rotate(6deg)}90%{opacity:1}100%{transform:translate(95vw,80vh) rotate(50deg);opacity:0}} @keyframes wpSplash{0%,80%{transform:translate(0,0) scale(0);opacity:0}90%{transform:translate(var(--dx),var(--dy)) scale(1);opacity:0.9}100%{transform:translate(var(--dx),calc(var(--dy) + 24px)) scale(0.7);opacity:0}} @keyframes wpBanner{0%{transform:translate(-50%,-50%) scale(0.7);opacity:0}70%{transform:translate(-50%,-50%) scale(1.05);opacity:1}100%{transform:translate(-50%,-50%) scale(1);opacity:1}} *{box-sizing:border-box} button:active:not(:disabled){transform:scale(0.97)}"}</style>
     </div>
   );
 }
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
+// ─── CELEBRATIONS (item 15) — pure CSS, never blocks the UI ──────────────────
+function Celebration({T,c}){
+  const cols=[T.blue,T.teal,T.coral,T.amber,"#8B5CF6"];
+  const pieces=(n,rain)=>Array.from({length:n},(_,i)=>{
+    const st={position:"absolute",top:-16,left:`${Math.random()*98}%`,width:5+Math.random()*5,height:8+Math.random()*7,borderRadius:2,background:cols[i%cols.length],
+      animation:`wpRain ${rain?(1.8+Math.random()*1.4):(1.3+Math.random()*0.9)}s ease-in ${Math.random()*(rain?0.9:0.5)}s forwards`,opacity:0};
+    return <span key={i} style={st}/>;
+  });
+  if(c.type==="sparkle"||c.type==="pulse"){
+    return(
+      <div style={{position:"fixed",left:"50%",bottom:74,transform:"translateX(-50%)",zIndex:3000,pointerEvents:"none"}}>
+        {c.type==="sparkle"
+          ?<div style={{fontSize:30,animation:"wpSpark 1.1s ease-out forwards"}}>✨</div>
+          :<div style={{width:34,height:34,borderRadius:"50%",background:T.teal,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:800,animation:"wpPop 0.55s ease-out forwards"}}>✓</div>}
+      </div>
+    );
+  }
+  if(c.type==="fish"){
+    const fp={fill:"none",stroke:T.blue,strokeWidth:2.4,strokeLinecap:"round",strokeLinejoin:"round"};
+    return(
+      <div style={{position:"fixed",inset:0,zIndex:3000,pointerEvents:"none",overflow:"hidden"}}>
+        <div style={{position:"absolute",left:0,top:0,animation:"wpFish 1.8s cubic-bezier(0.35,0,0.65,1) forwards",opacity:0}}>
+          <svg width="72" height="46" viewBox="0 0 72 46">
+            <path d="M6 23c10-13 26-18 40-14 8 2.4 14 7 20 14-6 7-12 11.6-20 14-14 4-30-1-40-14z" {...fp} fill={T.tealL}/>
+            <path d="M66 23l-12-10v20z" {...fp} fill={T.blueL}/>
+            <circle cx="20" cy="19" r="2.6" fill={T.blue}/>
+          </svg>
+        </div>
+        {Array.from({length:8},(_,i)=>{
+          const ang=Math.PI*(0.15+Math.random()*0.7),dist=30+Math.random()*46;
+          return <span key={i} style={{position:"absolute",left:"72%",bottom:60,width:7,height:7,borderRadius:"50%",background:T.teal,opacity:0,
+            "--dx":`${Math.cos(ang)*(Math.random()<0.5?-1:1)*dist}px`,"--dy":`${-Math.sin(ang)*dist}px`,animation:`wpSplash 2s ease-out ${0.05*i}s forwards`}}/>;
+        })}
+      </div>
+    );
+  }
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:3000,pointerEvents:"none",overflow:"hidden"}}>
+      {pieces(c.type==="grand"?80:50,c.type==="grand")}
+      {c.type==="grand"&&(
+        <div style={{position:"absolute",left:"50%",top:"42%",transform:"translate(-50%,-50%)",background:T.card,border:`2px solid ${T.amber}`,borderRadius:18,padding:"22px 34px",textAlign:"center",boxShadow:"0 10px 40px rgba(0,0,0,0.25)",animation:"wpBanner 0.7s 0.5s ease-out both"}}>
+          <div style={{fontSize:38,lineHeight:1}}>🏆</div>
+          <div style={{fontSize:20,fontWeight:900,margin:"8px 0 2px",color:T.navy}}>You did it!</div>
+          <div style={{fontSize:13,color:T.slate}}>{c.msg}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── TAB HEADING (item 14a) — one coloured italic word, tab name beneath ─────
+function TabHead({T,isMobile,pre,em,color,sub,style}){
+  return(
+    <div style={style}>
+      <h2 style={{margin:0,fontSize:isMobile?22:28,fontWeight:900,letterSpacing:"-0.7px",lineHeight:1.1}}>{pre}<span style={{color,fontStyle:"italic"}}>{em}</span></h2>
+      <div style={{fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"1.5px",marginTop:4}}>{sub}</div>
+    </div>
+  );
+}
+
+// ─── HEALTH RING (item 15) — month data-completeness score ───────────────────
+function HealthRing({T,score,hint,isMobile}){
+  const col=score<50?T.coral:score<80?T.amber:T.teal;
+  const R=26,C=2*Math.PI*R;
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:12,maxWidth:isMobile?"100%":300}}>
+      <svg width="64" height="64" viewBox="0 0 64 64" style={{flexShrink:0}}>
+        <circle cx="32" cy="32" r={R} fill="none" stroke={T.border} strokeWidth="6"/>
+        <circle cx="32" cy="32" r={R} fill="none" stroke={col} strokeWidth="6" strokeLinecap="round"
+          strokeDasharray={`${C*score/100} ${C}`} transform="rotate(-90 32 32)"/>
+        <text x="32" y="37" textAnchor="middle" fontSize="16" fontWeight="800" fill={col}>{score}</text>
+      </svg>
+      <div>
+        <div style={{fontSize:11,fontWeight:800,color:T.slate,textTransform:"uppercase",letterSpacing:"0.8px"}}>Data health</div>
+        <div style={{fontSize:11.5,color:T.muted,lineHeight:1.45}}>{hint}</div>
+      </div>
+    </div>
+  );
+}
+
 // Collapse long advisory copy to 2 lines with a "more" toggle (item 10)
 function Clamp({T,children}){
   const [open,setOpen]=useState(false);
@@ -706,7 +919,7 @@ function Clamp({T,children}){
   );
 }
 
-function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,ytd,yearTarget,saveYearTarget,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market={},searchTerms={},volatileIngredients=[],trackIngredient,onRefreshLive,liveBusy}){
+function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,rev,bowlRev,otherRev,cogs,ytd,yearTarget,saveYearTarget,bowlsSold,gp,fcp,avgBowl,fcpDelta,revDelta,hasData,data,movers,actions,cRev,cCOGS,cBowlRev,setSelIng,setTab,bCost,bFCP,bMargin,blendedPrice,market={},searchTerms={},volatileIngredients=[],trackIngredient,healthScore=0,healthHint="",onRefreshLive,liveBusy}){
   const h=headline;
   const [buyIng,setBuyIng]=useState("");
   const [buyLoc,setBuyLoc]=useState("loc1");
@@ -719,16 +932,19 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
   };
   return(
     <div>
-      <div style={{marginBottom:isMobile?16:isDesktop?12:24}}>
-        <div style={{fontSize:isMobile?10:11,color:T.muted,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:isDesktop?4:6}}>{latMon} · {locName(loc)}</div>
-        <h1 style={{fontSize:isMobile?26:isDesktop?24:40,fontWeight:900,margin:"0 0 6px",letterSpacing:"-1px",lineHeight:1.1}}>
-          {h.pre}<span style={{color:h.color,fontStyle:"italic"}}>{h.em}</span>
-        </h1>
-        <p style={{fontSize:isMobile?13:isDesktop?13:15,color:T.slate,margin:0,lineHeight:1.6}}>{h.sub}</p>
-        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:isDesktop?5:8}}>
-          <div style={{width:7,height:7,borderRadius:"50%",background:T.teal,animation:"pulse 2s infinite"}}/>
-          <span style={{fontSize:12,color:T.muted}}>Live · synced to database</span>
+      <div style={{display:"flex",gap:16,alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",marginBottom:isMobile?16:isDesktop?14:24}}>
+        <div style={{flex:"1 1 380px",minWidth:0}}>
+          <div style={{fontSize:isMobile?10:11,color:T.muted,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:700,marginBottom:isDesktop?4:6}}>{latMon} · {locName(loc)}</div>
+          <h1 style={{fontSize:isMobile?26:isDesktop?32:40,fontWeight:900,margin:"0 0 6px",letterSpacing:"-1px",lineHeight:1.1}}>
+            {h.pre}<span style={{color:h.color,fontStyle:"italic"}}>{h.em}</span>
+          </h1>
+          <p style={{fontSize:isMobile?13:isDesktop?13:15,color:T.slate,margin:0,lineHeight:1.6}}>{h.sub}</p>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:isDesktop?5:8}}>
+            <div style={{width:7,height:7,borderRadius:"50%",background:T.teal,animation:"pulse 2s infinite"}}/>
+            <span style={{fontSize:12,color:T.muted}}>Live · synced to database</span>
+          </div>
         </div>
+        <HealthRing T={T} score={healthScore} hint={healthHint} isMobile={isMobile}/>
       </div>
 
       {/* Current-month strip — the annual target and year view live on the Sales tab */}
@@ -1356,8 +1572,8 @@ function Suppliers({T,isMobile,isDesktop,card,Tag,data,selSup,setSelSup,say,relo
 
   return(
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,flexWrap:"wrap",gap:8}}>
-        <h2 style={{margin:0,fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Suppliers</h2>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,flexWrap:"wrap",gap:8}}>
+        <TabHead T={T} isMobile={isMobile} pre="Know who's " em="cheapest." color={T.coral} sub="Suppliers"/>
         <button onClick={()=>setShowAdd(v=>!v)} style={{background:showAdd?"transparent":T.blue,color:showAdd?T.muted:"#fff",border:showAdd?`1px solid ${T.border}`:"none",padding:"8px 16px",borderRadius:20,fontSize:13,cursor:"pointer",fontWeight:700}}>{showAdd?"Cancel":"+ Add supplier"}</button>
       </div>
       <p style={{margin:"0 0 16px",fontSize:isMobile?12:13,color:T.muted}}>Spend figures build from receipts scanned with quantities · tap a supplier for detail and line items</p>
@@ -1756,13 +1972,35 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
 
   return(
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
-        <h2 style={{margin:0,fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>Sales</h2>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,flexWrap:"wrap",gap:10}}>
+        <TabHead T={T} isMobile={isMobile} pre="Your numbers, " em="straight up." color={T.blue} sub="Sales"/>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           {savedMonths.length>0&&<button onClick={()=>openEdit(savedMonths[0])} style={{background:"transparent",color:T.slate,border:`1px solid ${T.border}`,borderRadius:20,padding:"9px 16px",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>✎ Edit month</button>}
           <button onClick={()=>setShowForm(v=>!v)} style={{background:showForm?"transparent":T.blue,color:showForm?T.muted:"#fff",border:showForm?`1px solid ${T.border}`:"none",borderRadius:20,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>{showForm?"Cancel":"+ Enter monthly sales"}</button>
         </div>
       </div>
+      {/* Item 14b: rules-based narrative — always cites a real number, honest on down months */}
+      {(()=>{
+        const narrative=(()=>{
+          if(!months.length)return "Enter this month's sales and watch this space.";
+          const last=months[months.length-1],prev=months[months.length-2];
+          const lastTot=cRev(last,"all");
+          if(!prev)return `${last} came in at $${fmt(lastTot)} — your first tracked month. Watch this space.`;
+          const prevTot=cRev(prev,"all");
+          const chg=prevTot?((lastTot-prevTot)/prevTot)*100:0;
+          const yr=String(new Date().getFullYear());
+          const yearMs=months.filter(m=>m.split(" ")[1]===yr);
+          const best=yearMs.length>1&&yearMs.every(m=>cRev(m,"all")<=lastTot);
+          if(best)return `${last} came in at $${fmt(lastTot)} — your strongest month of ${yr} so far. Keep that momentum.`;
+          if(chg>=0.5)return `${last} hit $${fmt(lastTot)} — up ${chg.toFixed(0)}% on ${prev.split(" ")[0]}. Keep it rolling.`;
+          if(Math.abs(chg)<0.5)return `${last} held steady at $${fmt(lastTot)}. Consistency counts.`;
+          const now=new Date();
+          const yearFrac=(now-new Date(now.getFullYear(),0,1))/(new Date(now.getFullYear()+1,0,1)-new Date(now.getFullYear(),0,1));
+          if(yearTarget&&ytd&&ytd.sales.all>=yearTarget*yearFrac)return `${last} dipped ${Math.abs(chg).toFixed(0)}% on ${prev.split(" ")[0]}, but you're still ahead of target pace on the year.`;
+          return `${last} came in ${Math.abs(chg).toFixed(0)}% below ${prev.split(" ")[0]} — it's tracked, and tracked months are fixable months. Keep swimming.`;
+        })();
+        return <p style={{margin:"0 0 18px",fontSize:isMobile?13:14,color:T.slate,lineHeight:1.6}}>{narrative}</p>;
+      })()}
 
       {/* Annual target — moved here from the dashboard (Sales owns planning/review) */}
       {(()=>{
@@ -1775,8 +2013,8 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
         const diff=ytdSales-pace;
         return(
           <div style={{...card,marginBottom:16}}>
-            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:4}}>
-              <div style={{fontSize:isMobile?15:17,fontWeight:700}}>{yr} target</div>
+            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:6}}>
+              <div style={{fontSize:isMobile?17:20,fontWeight:900,letterSpacing:"-0.4px"}}>{yr} <span style={{color:T.blue,fontStyle:"italic"}}>target</span>{ytd&&yearTarget&&ytd.sales.all>=yearTarget?" 🏆":""}</div>
               {yearTarget&&tgtEdit===null&&<button onClick={()=>setTgtEdit(String(yearTarget))} style={{marginLeft:"auto",background:"transparent",border:`1px solid ${T.border}`,borderRadius:16,color:T.slate,padding:"4px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Edit target</button>}
             </div>
             {(!yearTarget||tgtEdit!==null)?(
@@ -1791,16 +2029,16 @@ function Sales({T,isMobile,isDesktop,card,Tag,data,loc,locKey,ytd,yearTarget,sav
               </div>
             ):(
               <div>
-                <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",marginBottom:isDesktop?6:10}}>
-                  <span style={{fontSize:isMobile?24:isDesktop?20:30,fontWeight:900,color:T.blue,letterSpacing:"-0.5px"}}>{fmtK2(ytdSales)}</span>
-                  <span style={{fontSize:isMobile?13:isDesktop?13:15,color:T.muted}}>of {fmtK2(yearTarget)} · {(yearTarget?(ytdSales/yearTarget)*100:0).toFixed(1)}% · year to date</span>
+                <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",marginBottom:10}}>
+                  <span style={{fontSize:isMobile?24:29,fontWeight:900,color:T.blue,letterSpacing:"-0.5px"}}>{fmtK2(ytdSales)}</span>
+                  <span style={{fontSize:isMobile?13:14,color:T.muted}}>of {fmtK2(yearTarget)} · {(yearTarget?(ytdSales/yearTarget)*100:0).toFixed(1)}% · year to date</span>
                 </div>
-                <div style={{position:"relative",height:isDesktop?6:12,background:T.border,borderRadius:6,marginBottom:6}}>
+                <div style={{position:"relative",height:11,background:T.border,borderRadius:6,marginBottom:8}}>
                   <div style={{position:"absolute",height:"100%",width:`${pct}%`,background:diff>=0?T.teal:T.blue,borderRadius:6}}/>
-                  <div style={{position:"absolute",left:`${Math.min(yearFrac*100,100)}%`,top:isDesktop?-2:-3,width:2,height:isDesktop?10:18,background:T.ink,opacity:0.55}} title="Where you should be today at an even pace"/>
+                  <div style={{position:"absolute",left:`${Math.min(yearFrac*100,100)}%`,top:-3,width:2.5,height:17,background:T.ink,opacity:0.6}} title="Where you should be today at an even pace"/>
                 </div>
                 <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
-                  <span style={{fontSize:12,fontWeight:700,color:diff>=0?T.teal:T.coral}}>{diff>=0?`Ahead of pace by ${fmtK2(diff)}`:`Behind pace by ${fmtK2(-diff)}`}</span>
+                  <span style={{fontSize:13,fontWeight:800,color:diff>=0?T.teal:T.coral}}>{diff>=0?`Ahead of pace by ${fmtK2(diff)}`:`Behind pace by ${fmtK2(-diff)}`}</span>
                   <span style={{fontSize:11,color:T.muted}}>Pace marker = even spend of the year to date ({fmtK2(pace)})</span>
                 </div>
               </div>
@@ -2359,7 +2597,7 @@ function Insights({T,isMobile,isDesktop,card,Tag,latMon,aiInsights,insightsDate,
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
         <div>
-          <h2 style={{margin:"0 0 4px",fontSize:isMobile?20:26,fontWeight:800,letterSpacing:"-0.5px"}}>AI Insights</h2>
+          <TabHead T={T} isMobile={isMobile} pre="What the data " em="says." color="#8B5CF6" sub="AI Insights" style={{marginBottom:4}}/>
           <p style={{margin:0,fontSize:isMobile?13:14,color:T.muted}}>Generated from your real data — specific numbers, specific recommendations</p>
         </div>
         {aiInsights&&<button onClick={generateInsights} disabled={loadingInsights} style={{background:T.blue,color:"#fff",border:"none",borderRadius:20,padding:"10px 20px",fontSize:14,fontWeight:700,cursor:loadingInsights?"not-allowed":"pointer",opacity:loadingInsights?0.7:1}}>✦ Regenerate</button>}
@@ -2563,6 +2801,7 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedP
   };
   return(
     <div>
+      <TabHead T={T} isMobile={isMobile} pre="Every bowl, " em="costed." color={T.teal} sub="Menu" style={{marginBottom:12}}/>
       <div style={{display:"flex",gap:3,background:T.card,border:`1px solid ${T.border}`,borderRadius:20,padding:3,width:"fit-content",marginBottom:16}}>
         {[["recipes","Recipes"],["ingredients","Ingredients"]].map(([id,lb])=>(
           <button key={id} onClick={()=>setSub(id)} style={{background:sub===id?T.blue:"transparent",color:sub===id?"#fff":T.slate,border:"none",borderRadius:16,padding:"7px 18px",fontSize:13,fontWeight:sub===id?700:500,cursor:"pointer"}}>{lb}</button>
