@@ -7,6 +7,7 @@
 ## 28. Header: Help button (mailto) (approved + BUILT 2026-07-20, NOT committed)
 - "Help" pill button in the header, left of "Sign out", same style (border pill, ? icon, icon-only on mobile with "Email support" tooltip).
 - Opens mailto:wenceslyne@elitelvlservices.com with subject "Westcoast Poke Support Request" and a pre-filled body ("Question about:" + the logged-in user's email) so the sender is identifiable.
+- 28a (approved + BUILT 2026-07-20): button swapped to a real <a href="mailto:..."> styled identically (textDecoration none, same pill/hover/tooltip) so right-click offers the browser-native "Copy email address"; left-click redirect unchanged. Context: desktop Chrome without a registered mail handler silently drops mailto — worked on mobile; user advised on chrome://settings/handlers / default mail app.
 - V2 (parked, see ROADMAP): in-app AI help chat via Edge Function + Claude API, with summarized transcripts, needs-action flags, and an owner inbox.
 
 ## 27. Target card: minimal fading gauge (approved + BUILT 2026-07-20, NOT committed)
