@@ -866,10 +866,10 @@ function SecurityTab({T,isMobile,card,say,session}){
   const initials=(e)=>(e||"?").slice(0,2).toUpperCase();
   return(
     <div>
-      <TabHead T={T} isMobile={isMobile} pre="Access &" em="security" color={T.blue} sub="Who can use the platform, and who's signed in right now"/>
+      <TabHead T={T} isMobile={isMobile} pre="Access & " em="security" color={T.blue} sub="Who can use the platform, and who's signed in right now" style={{marginBottom:16}}/>
       <div style={{...card,padding:isMobile?16:20,marginBottom:16}}>
-        <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>Who can sign in</div>
-        <div style={{fontSize:12.5,color:T.muted,marginBottom:12}}>Only these {OWNER_EMAILS.length} emails can access the platform (enforced at login, in the app, and on the AI proxy). Changing the list is a code change.</div>
+        <div style={{fontSize:15,fontWeight:800,marginBottom:6}}>Who can sign in</div>
+        <div style={{fontSize:12.5,color:T.muted,marginBottom:14,lineHeight:1.6}}>Only these {OWNER_EMAILS.length} emails can access the platform (enforced at login, in the app, and on the AI proxy). Changing the list is a code change.</div>
         {OWNER_EMAILS.map((e,i)=>(
           <div key={e} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderTop:i?`1px solid ${T.border}`:"none",fontSize:13.5}}>
             <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{e}</span>
@@ -880,11 +880,11 @@ function SecurityTab({T,isMobile,card,say,session}){
         ))}
       </div>
       <div style={{...card,padding:isMobile?16:20}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
           <span style={{fontSize:15,fontWeight:800}}>Active sessions</span>
           <button onClick={load} style={{marginLeft:"auto",background:"none",border:`1px solid ${T.border}`,borderRadius:14,color:T.muted,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>⟳ Refresh</button>
         </div>
-        <div style={{fontSize:12.5,color:T.muted,marginBottom:12}}>Everyone currently signed in. Sessions never expire on their own — end one here and that device signs out when its current token runs out (up to ~1 hour).</div>
+        <div style={{fontSize:12.5,color:T.muted,marginBottom:14,lineHeight:1.6}}>Everyone currently signed in. Sessions never expire on their own — end one here and that device signs out when its current token runs out (up to ~1 hour).</div>
         {rows===null&&<div style={{padding:"18px 0",color:T.muted,fontSize:13}}>Loading sessions…</div>}
         {err&&<div style={{background:T.amberL,border:`1px solid ${T.amber}44`,borderRadius:10,padding:"10px 14px",fontSize:12.5,color:T.slate}}>Couldn't load sessions — {err}. If this says the function doesn't exist, run security-sessions.sql in the Supabase SQL Editor first.</div>}
         {rows&&!err&&rows.length===0&&<div style={{padding:"18px 0",color:T.muted,fontSize:13}}>No active sessions found.</div>}
@@ -1062,21 +1062,29 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
             <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"space-evenly"}}>
             {["loc1","loc2"].map((l,i)=>{
               const lr=cRev(latMon,l),lbr=cBowlRev(latMon,l),lc=cCOGS(latMon,l),lp=lbr?(lc/lbr)*100:0,delta=lp-30;
+              const MNd=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+              const mi=MNd.indexOf(latMon.split(" ")[0]),yy=parseInt(latMon.split(" ")[1]);
+              const pdt=new Date(yy,mi-1);const pKey=`${MNd[pdt.getMonth()]} ${pdt.getFullYear()}`;
+              const pr=data.sales[pKey]?cRev(pKey,l):0;
+              const rchg=pr?((lr-pr)/pr)*100:null;
               return(
-                <div key={l} style={{marginBottom:i===0?16:0}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:5}}>
-                    <div style={{fontSize:isMobile?13:15,fontWeight:600}}>{data.locations[l]} <span style={{fontSize:11,color:T.muted,fontWeight:400}}>L{i+1}</span></div>
+                <div key={l} style={{marginBottom:i===0?14:0}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}}>
+                    <div style={{fontSize:isMobile?13:15,fontWeight:700}}>{data.locations[l]} <span style={{fontSize:11,color:T.muted,fontWeight:400}}>L{i+1}</span></div>
                     <div style={{textAlign:"right"}}>
-                      <span style={{fontSize:isMobile?13:15,fontWeight:800,marginRight:8}}>${(lr||0).toLocaleString("en-CA")}</span>
-                      <span style={{fontSize:13,fontWeight:700,color:lp>30?T.coral:T.teal}}>{lp.toFixed(1)}%</span>
+                      <span style={{fontSize:isMobile?18:22,fontWeight:900,letterSpacing:"-0.5px",marginRight:8}}>${(lr||0).toLocaleString("en-CA")}</span>
+                      <span style={{fontSize:14,fontWeight:700,color:lp>30?T.coral:T.teal}}>{lp.toFixed(1)}%</span>
                     </div>
                   </div>
-                  <div style={{position:"relative",height:8,background:T.border,borderRadius:4,marginBottom:5}}>
-                    <div style={{position:"absolute",height:"100%",width:`${Math.min(lp/40*100,100)}%`,background:lp>30?T.coral:T.blue,borderRadius:4}}/>
-                    <div style={{position:"absolute",left:"75%",top:-2,width:2,height:12,background:T.navy,opacity:0.4}}/>
+                  <div style={{position:"relative",height:10,background:T.border,borderRadius:5,marginBottom:6}}>
+                    <div style={{position:"absolute",height:"100%",width:`${Math.min(lp/40*100,100)}%`,background:lp>30?T.coral:T.blue,borderRadius:5}}/>
+                    <div style={{position:"absolute",left:"75%",top:-2,width:2,height:14,background:T.navy,opacity:0.4}}/>
                   </div>
-                  <div style={{fontSize:11,color:delta>0?T.coral:T.teal,fontWeight:600,textAlign:"right"}}>Δ {delta>0?"+":""}{delta.toFixed(1)}pts vs target</div>
-                  {i===0&&<div style={{borderTop:`1px solid ${T.border}`,margin:"12px 0"}}/>}
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:11.5,color:T.muted,fontWeight:600}}>{rchg===null?`no ${pKey.split(" ")[0]} data to compare`:`vs ${pKey.split(" ")[0]}: ${rchg>=0?"+":""}${rchg.toFixed(0)}% revenue`}</span>
+                    <span style={{fontSize:11.5,color:delta>0?T.coral:T.teal,fontWeight:700}}>Δ {delta>0?"+":""}{delta.toFixed(1)}pts vs target</span>
+                  </div>
+                  {i===0&&<div style={{borderTop:`1px solid ${T.border}`,margin:"14px 0 0"}}/>}
                 </div>
               );
             })}
@@ -1085,16 +1093,15 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
               const l1p=cRev(latMon,"loc1")?(cCOGS(latMon,"loc1")/cRev(latMon,"loc1")*100):0;
               const l2p=cRev(latMon,"loc2")?(cCOGS(latMon,"loc2")/cRev(latMon,"loc2")*100):0;
               const diff=Math.abs(l1p-l2p);
-              if(diff<0.5)return null;
               const hotter=l1p>l2p?data.locations.loc1:data.locations.loc2;
-              return <div style={{background:T.bg,borderRadius:10,padding:"10px 14px",marginTop:12,fontSize:13,color:T.slate,lineHeight:1.6}}><strong style={{color:T.navy}}>Insight</strong> · {hotter} is running {diff.toFixed(1)}pts hotter on COGS. Check portion consistency across locations.</div>;
+              return <div style={{background:T.bg,borderRadius:10,padding:"10px 14px",marginTop:"auto",fontSize:12.5,color:T.slate,lineHeight:1.6}}><strong style={{color:T.navy}}>Insight</strong> · {diff<0.5?"Both locations are running level on COGS — portioning looks consistent.":`${hotter} is running ${diff.toFixed(1)}pts hotter on COGS. Check portion consistency across locations.`}</div>;
             })()}
           </div>
         )}
 
         {/* Row 2: Best price today + Buy it today, equal width and height */}
         <div style={{gridColumn:"1 / -1",order:2,display:"grid",gridTemplateColumns:isDesktop?"1fr 1fr":"1fr",gap:isMobile?12:16,alignItems:"stretch"}}>
-        <div style={{...card,border:`1.5px solid ${T.blue}66`}}>
+        <div style={{...card,border:`1.5px solid ${T.blue}66`,height:"100%"}}>
           <div style={{fontSize:9.5,fontWeight:800,color:T.blue,background:T.blueL,border:`1px solid ${T.blue}44`,borderRadius:20,padding:"3px 10px",display:"inline-block",letterSpacing:"0.8px",marginBottom:8}}>⚡ QUICK WIN</div>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2,flexWrap:"wrap"}}>
             <div style={{fontSize:isMobile?18:21,fontWeight:800,letterSpacing:"-0.3px"}}>💰 Best price today</div>
@@ -1141,7 +1148,7 @@ function Dashboard({T,isMobile,isDesktop,card,Tag,latMon,loc,locName,headline,re
           })()}
         </div>
 
-        <div style={{...card,display:"flex",flexDirection:"column"}}>
+        <div style={{...card,display:"flex",flexDirection:"column",height:"100%"}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
             <div style={{fontSize:isMobile?15:17,fontWeight:800}}>🛒 Buy it today</div>
             <Tag c={T.teal} bg={T.tealL} sm>FREE SEARCH</Tag>
