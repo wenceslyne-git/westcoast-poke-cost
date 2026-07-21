@@ -3149,6 +3149,10 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedP
         );
       })}
       </div>)}
+      <footer style={{textAlign:"center",padding:isMobile?"20px 16px 28px":"28px 16px 36px",fontSize:11,color:T.muted,lineHeight:1.6}}>
+        <a href="https://www.elitelvlservices.com/" target="_blank" rel="noopener noreferrer" title="Visit Elite LVL Services UK Ltd" style={{color:"inherit",textDecoration:"none",fontWeight:600}}>© 2026 ELITE LVL SERVICES UK LTD.</a> All rights reserved.<br/>
+        Unauthorised use or reproduction prohibited.
+      </footer>
     </div>
   );
 }
