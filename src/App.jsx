@@ -722,9 +722,9 @@ export default function App(){
       {/* header */}
       <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"6px 10px":"8px 20px",display:"flex",alignItems:"center",minHeight:isMobile?52:64,gap:isMobile?6:8,flexWrap:"nowrap",flexShrink:0,width:"100%",overflow:"hidden"}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-          <div style={{width:isMobile?38:46,height:isMobile?38:46,borderRadius:"50%",background:"#fff",border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}>
+          <a href="https://westcoastpoke.com" target="_blank" rel="noopener noreferrer" title="Visit westcoastpoke.com" style={{width:isMobile?38:46,height:isMobile?38:46,borderRadius:"50%",background:"#fff",border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}>
             <img src={WCP_LOGO} alt="WCP" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
-          </div>
+          </a>
           {!isMobile&&<div>
             <div style={{fontWeight:800,fontSize:16,color:T.blue,lineHeight:1,letterSpacing:"-0.3px"}}>Westcoast Poké</div>
             <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:600}}>Food Cost Intelligence</div>
@@ -1445,8 +1445,8 @@ function Ingredients({T,isMobile,isDesktop,card,Tag,data,selIng,setSelIng,checks
                               <div style={{flex:1,fontSize:13,fontWeight:600}}>{name}{ov&&<span style={{marginLeft:6,fontSize:11,color:T.coral}}>{"\u26a0"}</span>}{recipesUsing(name).length===0&&<span title="Not in any bowl — won't affect food cost" style={{marginLeft:8,fontSize:10,fontWeight:700,color:T.amber,background:T.amberL,border:`1px solid ${T.amber}44`,padding:"1px 7px",borderRadius:10,whiteSpace:"nowrap"}}>not in a bowl</span>}</div>
                               <div style={{fontSize:12,color:T.muted}}>{entries[entries.length-1]?.supplier}</div>
                               <div style={{fontSize:13,fontWeight:700,width:88,textAlign:"right"}}>${fmt(lat)}<span style={{fontSize:10,color:T.muted,fontWeight:400}}>/{entries[0]?.unit}</span></div>
-                              <div style={{fontSize:12,fontWeight:700,color:ch>0?T.coral:T.teal,width:52,textAlign:"right"}}>{ch>0?"+":""}{ch.toFixed(1)}%</div>
-                              <span style={{color:T.muted,fontSize:11,width:12,textAlign:"center"}}>{isSel?"\u25be":"\u25b8"}</span>
+                              <div style={{fontSize:12,fontWeight:700,color:Math.abs(ch)<1?T.muted:ch>0?T.coral:T.teal,width:62,textAlign:"right"}}>{Math.abs(ch)<1?"flat":`${ch>0?"↗ ":"↘ "}${Math.abs(ch).toFixed(1)}%`}</div>
+                              <span style={{color:T.slate,fontSize:15,width:16,textAlign:"center"}}>{isSel?"\u25be":"\u25b8"}</span>
                             </div>
                             {isSel&&(
                               <div onClick={e=>e.stopPropagation()} style={{padding:"6px 16px 18px"}}>

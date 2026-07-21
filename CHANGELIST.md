@@ -1,5 +1,47 @@
 # Change list
 
+## 31. Ingredient price chart: size + y-axis (approved via mockup + BUILT 2026-07-20, NOT committed)
+Context: expanded ingredient chart renders ~690px tall on a wide desktop and the line
+looks almost flat. Both are the same root cause in `PriceChart` (src/data.jsx:118-148),
+not the row layout — the collapsed row (name / supplier / price / % delta / chevron,
+src/App.jsx:1438-1445) already matches the agreed design and is NOT changing. No
+sparklines in collapsed rows — user rejected ("looks like swimming sperms").
+- **Height.** SVG is `viewBox="0 0 460 160"` with `width="100%"` and only
+  `maxWidth:"100%"`, so it scales with container width — ~4x on a wide screen, hence
+  ~690px tall. Constrain it (cap rendered width, e.g. maxWidth ~560px) so the chart
+  keeps its intended ~160px proportion instead of ballooning.
+- **Y-axis domain.** Currently `mn = min*0.92, mx = max*1.08` — padding scales off the
+  absolute price, not the spread. Ahi Tuna ($16.50-$17.40, a 90c range) gets a
+  $15.18-$18.79 axis, so a +5.5% move reads as a flat drift. Switch to range-relative
+  padding (pad off `max-min`) with a minimum floor so a genuinely flat series doesn't
+  get magnified into noise. BUILT: half-span = max(range/2, mid*3%, 5c), then +30%
+  padding. Ahi $16.50-$17.40 -> axis $16.29-$17.61, line fills 68% of the height (was a
+  flat drift in a $15-$19 axis); Hamachi 77%; a 3c-noise item stays at 4%; identical
+  prices stay a flat line at 0%.
+- **Gridline labels.** `${t.toFixed(0)}` dropped cents ("$19 / $17 / $15"). With a tight
+  domain the three labels collide on the same integer — now 2dp. Left pad (pl=52) still
+  clears the widest label at 11px.
+- **31a. Direction arrows on the collapsed row** (approved 2026-07-20, BUILT both repos).
+  Chart fix confirmed live by user; they then asked for the arrows from the mockup, which
+  the first build had deliberately left out. src/App.jsx delta cell: prepend "↗ " when
+  ch>0, "↘ " when ch<0, nothing at exactly 0.0%; cell width 52 -> 62 to fit. Colour logic
+  untouched (coral up / teal down). Applied to Westcoast App.jsx:1448 and
+  Westcoast-demo App.jsx:1508.
+- **31b. Row polish to match the approved mockup** (approved 2026-07-20, BUILT both repos).
+  Three gaps found by comparing the mockup against the shipped row:
+  (i) Expand chevron was never missing — it existed at fontSize 11 / T.muted / width 12,
+  effectively invisible on dark. Now fontSize 15 / T.slate / width 16.
+  (ii) Sign dropped: renders "↗ 5.5%" / "↘ 2.1%", not "↗ +5.5%" / "↘ -2.1%" — arrow and
+  colour already carry direction, the sign was a double negative (user decision).
+  (iii) "flat" label for |change| < 1%, in T.muted with no arrow, so rounding noise stops
+  reading as a price alert (user picked the 1% cutoff).
+  Row markup now byte-identical across both repos.
+  CAUTION: mockup suppliers (Kaiyo Imports, Gulf Line Foods, Nakamura Bros) were invented
+  filler — do NOT treat mockup screenshots as a data reference.
+- Not in scope, flagged only: collapsed row can't distinguish "climbed steadily" from
+  "spiked and recovered" (both show +5.5%). If that matters for ordering decisions the
+  fix is a "6mo range" column ($16.50-$17.40), not sparklines.
+
 ## 29. Reactive hover on header + regenerate buttons (approved via mockup + BUILT 2026-07-20, NOT committed)
 - Two new classes in the global style block: wpHovG (ghost/outline) — 2px lift, blueL fill, blue border+text, soft blue shadow; wpHovS (solid blue) — 2px lift, deepens to blueDark, stronger shadow. 0.16s ease, :not(:disabled), colours via --wpBlue/--wpBlueL/--wpBlueDark CSS vars set on the app root so dark mode follows the theme.
 - Applied to: Scan receipt (S), Help (G), Sign out (G), dark-mode toggle (G), unselected header location pills (G), "⟳ Refresh live prices" (S), "✦ Regenerate" insights button (S).
