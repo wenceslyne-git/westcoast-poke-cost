@@ -722,7 +722,7 @@ export default function App(){
       {/* header */}
       <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"6px 10px":"8px 20px",display:"flex",alignItems:"center",minHeight:isMobile?52:64,gap:isMobile?6:8,flexWrap:"nowrap",flexShrink:0,width:"100%",overflow:"hidden"}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-          <a href="https://westcoastpoke.com" target="_blank" rel="noopener noreferrer" title="Visit westcoastpoke.com" style={{width:isMobile?38:46,height:isMobile?38:46,borderRadius:"50%",background:"#fff",border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}>
+          <a href="https://www.westcoastpoke.com/" target="_blank" rel="noopener noreferrer" title="Visit westcoastpoke.com" style={{width:isMobile?38:46,height:isMobile?38:46,borderRadius:"50%",background:"#fff",border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}>
             <img src={WCP_LOGO} alt="WCP" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
           </a>
           {!isMobile&&<div>
@@ -2974,7 +2974,7 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedP
     if(!valid.length)return 0;
     const last=valid[valid.length-1];return norm(last.price,last.unit);
   };
-  const ingOf=(m,sz)=>m.ing?.[sz]||m.ing?.medium||{};
+  const ingOf=(m,sz)=>m.ing?.[sz]||m.ing?.medium||m.ing||{};
   const costOf=(ingSet,at="live")=>Object.entries(ingSet).reduce((s,[i,q])=>s+gILAt(i,at)*(parseFloat(q)||0),0);
   const open=(name)=>{
     const m=data.menu[name];
