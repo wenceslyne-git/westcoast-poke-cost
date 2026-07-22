@@ -833,6 +833,10 @@ export default function App(){
         {tab==="scan"&&<Scan {...{T,isMobile,card,img,setImg,scanRes,setScanRes,scanning,doScan:()=>armPaid({label:"Receipt extraction (~$0.02)",secs:3,lastAt:null,fn:doScan}),okScan,onFile,fileRef,scanLoc,setScanLoc,locations:data.locations,data,reload,say}}/>}
         {tab==="insights"&&<Insights {...{T,isMobile,isDesktop,card,Tag,latMon,aiInsights,insightsDate,loadingInsights,insightsStale,generateInsights:()=>armPaid({label:"AI insights",secs:3,lastAt:insightsDate,fn:generateInsights}),insightChat,chatInput,setChatInput,chatLoading,sendChat}}/>}
         {tab==="security"&&<SecurityTab {...{T,isMobile,card,say,session}}/>}
+      <footer style={{textAlign:"center",marginTop:isMobile?24:36,padding:isMobile?"22px 16px 0":"28px 16px 0",marginBottom:isMobile?-6:-12,fontSize:11,color:T.muted,lineHeight:1.6,borderTop:`1px solid ${T.border}`}}>
+        <a href="https://www.elitelvlservices.com/" target="_blank" rel="noopener noreferrer" title="Visit Elite LVL Services UK Ltd" style={{color:"inherit",textDecoration:"none",fontWeight:600}}>© 2026 ELITE LVL SERVICES UK LTD.</a> All rights reserved.<br/>
+        Unauthorised use or reproduction prohibited.
+      </footer>
       </div>
         </div>
       </div>
@@ -3149,10 +3153,6 @@ function MenuTab({T,isMobile,isDesktop,card,Tag,data,bCost,bFCP,bMargin,blendedP
         );
       })}
       </div>)}
-      <footer style={{textAlign:"center",padding:isMobile?"20px 16px 28px":"28px 16px 36px",fontSize:11,color:T.muted,lineHeight:1.6}}>
-        <a href="https://www.elitelvlservices.com/" target="_blank" rel="noopener noreferrer" title="Visit Elite LVL Services UK Ltd" style={{color:"inherit",textDecoration:"none",fontWeight:600}}>© 2026 ELITE LVL SERVICES UK LTD.</a> All rights reserved.<br/>
-        Unauthorised use or reproduction prohibited.
-      </footer>
     </div>
   );
 }
